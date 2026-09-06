@@ -1,2 +1,32 @@
+# 本机说明
 AGENTS.md
-.venv/
+
+# Python 虚拟环境
+venv/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+
+# CIFAR-10 下载数据
+training-pipeline/data/
+
+# 训练产物
+training-pipeline/outputs/
+training-pipeline/checkpoints/
+training-pipeline/runs/
+
+# 模型文件，避免误提交到其他目录
+*.pt
+*.pth
+*.ckpt
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
