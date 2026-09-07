@@ -1,11 +1,11 @@
 WorkspaceId: "1506433"
-DisplayName: cifar10-smoke
+DisplayName: cifar10-a10-train20
 JobType: PyTorchJob
 
 JobSpecs:
   - Type: Worker
     PodCount: 1
-    EcsSpec: ecs.gn8is.2xlarge
+    EcsSpec: ecs.gn7i-c8g1.2xlarge
     Image: dsw-registry-vpc.cn-shanghai.cr.aliyuncs.com/pai/pytorch:2.9.1-gpu-py312-cu128-ubuntu24.04-590381cf-1764375854
     UseSpotInstance: false
     RestartPolicy: Never
@@ -29,7 +29,7 @@ UserCommand: >-
   --data-resource-dir /mnt/oss/training-pipeline/data
   --work-dir /tmp/vla-training
   --runs-dir /mnt/oss/training-pipeline/runs
-  --config configs/smoke.json
+  --config configs/train.json
 
 Envs:
   PYTHONUNBUFFERED: "1"
@@ -37,8 +37,8 @@ Envs:
   MKL_NUM_THREADS: "2"
   PIPELINE_IMAGE_URI: dsw-registry-vpc.cn-shanghai.cr.aliyuncs.com/pai/pytorch:2.9.1-gpu-py312-cu128-ubuntu24.04-590381cf-1764375854
 
-JobMaxRunningTimeMinutes: 30
+JobMaxRunningTimeMinutes: 90
 Settings:
-  Driver: "580"
+  Driver: "550.127.08"
   JobReservedMinutes: 0
 Accessibility: PRIVATE
