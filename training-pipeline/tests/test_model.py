@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from cifar10_classifier.model import SimpleCNN
+from model import SimpleCNN
 
 
 def test_simple_cnn_returns_one_logit_per_class() -> None:

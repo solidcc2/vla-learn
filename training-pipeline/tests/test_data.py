@@ -1,6 +1,6 @@
 from torchvision.transforms import RandomCrop, RandomHorizontalFlip
 
-from cifar10_classifier.data import build_transforms
+from data import build_transforms
 
 
 def test_only_training_transform_uses_random_augmentation() -> None:

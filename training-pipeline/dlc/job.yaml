@@ -1,0 +1,44 @@
+WorkspaceId: "1506433"
+DisplayName: cifar10-smoke
+JobType: PyTorchJob
+
+JobSpecs:
+  - Type: Worker
+    PodCount: 1
+    EcsSpec: ecs.gn8is.2xlarge
+    Image: dsw-registry-vpc.cn-shanghai.cr.aliyuncs.com/pai/pytorch:2.9.1-gpu-py312-cu128-ubuntu24.04-590381cf-1764375854
+    UseSpotInstance: false
+    RestartPolicy: Never
+
+DataSources:
+  - Uri: oss://vla-learn2.oss-cn-shanghai-internal.aliyuncs.com/training-pipeline/code/release-20260907-100259/
+    MountPath: /mnt/oss/training-pipeline/code
+    MountAccess: RO
+    Options: '{"mountType": "ossfs"}'
+  - Uri: oss://vla-learn2.oss-cn-shanghai-internal.aliyuncs.com/training-pipeline/datasets/cifar10/release-20260907-100259/
+    MountPath: /mnt/oss/training-pipeline/data
+    MountAccess: RO
+    Options: '{"mountType": "ossfs"}'
+  - Uri: oss://vla-learn2.oss-cn-shanghai-internal.aliyuncs.com/training-pipeline/runs/
+    MountPath: /mnt/oss/training-pipeline/runs
+    MountAccess: RW
+    Options: '{"mountType": "ossfs"}'
+
+UserCommand: >-
+  bash /mnt/oss/training-pipeline/code/bootstrap.sh
+  --data-resource-dir /mnt/oss/training-pipeline/data
+  --work-dir /tmp/vla-training
+  --runs-dir /mnt/oss/training-pipeline/runs
+  --config configs/smoke.json
+
+Envs:
+  PYTHONUNBUFFERED: "1"
+  OMP_NUM_THREADS: "2"
+  MKL_NUM_THREADS: "2"
+  PIPELINE_IMAGE_URI: dsw-registry-vpc.cn-shanghai.cr.aliyuncs.com/pai/pytorch:2.9.1-gpu-py312-cu128-ubuntu24.04-590381cf-1764375854
+
+JobMaxRunningTimeMinutes: 30
+Settings:
+  Driver: "580"
+  JobReservedMinutes: 0
+Accessibility: PRIVATE

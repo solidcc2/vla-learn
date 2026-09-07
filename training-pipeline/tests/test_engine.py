@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from cifar10_classifier.engine import evaluate, train_one_epoch
+from engine import evaluate, train_one_epoch
 
 
 def _loader() -> DataLoader:

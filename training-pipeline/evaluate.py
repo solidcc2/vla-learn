@@ -6,10 +6,10 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from cifar10_classifier.checkpoint import load_checkpoint
-from cifar10_classifier.data import create_dataloaders
-from cifar10_classifier.engine import evaluate
-from cifar10_classifier.model import SimpleCNN
+from checkpoint import load_checkpoint
+from data import create_dataloaders
+from engine import evaluate
+from model import SimpleCNN
 from train import choose_device
 
 
