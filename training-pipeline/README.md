@@ -12,7 +12,7 @@ OSS 访问由 DLC 存储挂载负责。通过 PAI CLI 读取 `dlc/job.yaml` 创�
 
 ## 1. 环境与本地训练
 
-固定 Python 3.12、torch 2.9.1、torchvision 0.24.1。本地 venv 使用 CPU wheel，`requirements-cpu.txt` 是验证后的完整 freeze。每次使用 Python 前激活子项目环境：
+固定 Python 3.12、torch 2.9.1、torchvision 0.24.1。本地 venv 使用 CPU wheel，`requirements-cpu.txt` 保存完整依赖版本。每次使用 Python 前激活子项目环境：
 
 ```bash
 source training-pipeline/venv/bin/activate
@@ -86,7 +86,7 @@ cp "dist/$release/code/SHA256SUMS" "/mnt/oss/training-pipeline/code/$release/"
 dsw-registry-vpc.cn-shanghai.cr.aliyuncs.com/pai/pytorch:2.9.1-gpu-py312-cu128-ubuntu24.04-590381cf-1764375854
 ```
 
-已通过 ListImages 确认支持 DLC，标签为 Python 3.12.12、CUDA 12.8、cuDNN 9.8.0、NCCL 2.25.1、Linux x86_64。任务配置固定完整 tag。环境版本与基本 GPU 运算在准备镜像或宿主机环境时验收；启动器不执行版本准入或 GPU 探测。启动器在训练前一次构造 metadata，记录任务来源与 Python、Torch、torchvision、CUDA 版本，不作准入判断；训练层原样保存 metadata，将实际 device 和 gpu 单独写入 config.json。该镜像已在用户 GPU 主机跑通首次训练和新容器恢复；DLC 的实际运行环境与挂载仍待验收。
+镜像标签为 Python 3.12.12、CUDA 12.8、cuDNN 9.8.0、NCCL 2.25.1、Linux x86_64。任务配置固定完整 tag。环境版本与基本 GPU 运算在准备镜像或宿主机环境时验收；启动器不执行版本准入或 GPU 探测。启动器在训练前一次构造 metadata，记录任务来源与 Python、Torch、torchvision、CUDA 版本，不作准入判断；训练层原样保存 metadata，将实际 device 和 gpu 单独写入 config.json。
 
 GPU 运行环境由上方固定公共镜像提供。
 
@@ -103,11 +103,13 @@ GPU 运行环境由上方固定公共镜像提供。
 
 准备阶段完成 [DLC 服务授权](https://help.aliyun.com/zh/pai/grant-the-permissions-that-are-required-to-use-dlc)，使 PAI 服务角色具备输入目录读取和 runs 读写权限；配置 PAI CLI（`pai`）的身份凭据，并选定上海工作空间及可用的单 GPU ECS 规格。
 
-`dlc/job.yaml` 已配置上海工作空间 `vla_learn`（`1506433`）、Bucket `vla-learn2`，代码和数据版本均为 `release-20260907-100259`。实例采用 `ecs.gn8is.2xlarge`（单 GPU、48 GiB 显存、8 vCPU、64 GiB 内存），驱动固定为该规格支持的 `580`。规格列表查询确认支持按量付费，实际库存以提交时为准。
+当前任务配置对应提交 `52cb36cea9d5b9d2acb6f00a6c2df7ff07c82cc1`。
 
-该版本对应本地 `dist/release-20260907-100259`。训练前按第 2 节的发布顺序，将其中 `code/` 的内容复制到 OSS 的 `training-pipeline/code/release-20260907-100259/`，将 `data.tar.gz` 和 `data.manifest.json` 复制到 `training-pipeline/datasets/cifar10/release-20260907-100259/`。更换制品时同步修改 YAML 中的版本路径。
+`dlc/job.yaml` 已配置上海工作空间 `vla_learn`（`1506433`）、Bucket `vla-learn2`，代码和数据版本均为 `release-20260907-100259`。实例采用 `ecs.gn7i-c8g1.2xlarge`（单 NVIDIA A10、24 GiB 显存、8 vCPU、30 GiB 内存），驱动设置为该规格支持的 `550.127.08`。采用按量付费，实际库存以提交时为准。
 
-配置固定上海公共镜像、1 Worker、按量公共资源组及上表中的三个挂载，默认训练配置为 `configs/smoke.json`，最长运行 30 分钟、结束保留时长为 0。任务名和时限直接修改 `DisplayName`、`JobMaxRunningTimeMinutes`；PAI CLI 配置通过 `--profile` 选择（按需添加）。
+该版本对应本地 `dist/release-20260907-100259`。发布新版本时，按第 2 节的发布顺序，将其中 `code/` 的内容复制到 OSS 的 `training-pipeline/code/release-20260907-100259/`，将 `data.tar.gz` 和 `data.manifest.json` 复制到 `training-pipeline/datasets/cifar10/release-20260907-100259/`。更换制品时同步修改 YAML 中的版本路径。
+
+配置固定上海公共镜像、1 Worker、按量公共资源组及上表中的三个挂载，默认训练配置为 `configs/train.json`（目标总轮数 20），最长运行 90 分钟、结束保留时长为 0。任务名和时限直接修改 `DisplayName`、`JobMaxRunningTimeMinutes`；PAI CLI 配置通过 `--profile` 选择（按需添加）。
 
 在子项目目录中，使用 [PAI CLI 的 YAML 入口](https://help.aliyun.com/zh/pai/developer-reference/dlc-distributed-training) 预览请求：
 
@@ -126,9 +128,9 @@ pai dlc job submit \
   --body-json @dlc/job.yaml
 ```
 
-每次提交创建一个新任务。存储挂载由 DLC 在容器启动前完成，`UserCommand` 调用下面的入口。续训时修改 `DisplayName`，并在 `UserCommand` 中将配置改为 `configs/resume-smoke.json`、追加 `--resume-run <previous-run-id>`，随后再次预览并提交。
+每次提交创建一个新任务。存储挂载由 DLC 在容器启动前完成，`UserCommand` 调用下面的入口。续训时修改 `DisplayName`，在 `UserCommand` 中保留 `configs/train.json`、追加 `--resume-run <previous-run-id>`，随后再次预览并提交。目标总轮数为 20，不是额外再跑 20 轮；不追加恢复参数则从头训练。
 
-启动命令：
+单轮冒烟的启动命令（完整训练使用 `configs/train.json`）：
 
 ```bash
 bash /mnt/oss/training-pipeline/code/bootstrap.sh \
@@ -169,7 +171,7 @@ Bash 复制源码到本地临时目录，校验文件清单后启动 `python -m 
 
 ## 5. 续训与评估
 
-新任务保持相同镜像、数据版本和关键训练参数，把 config 改为 `configs/resume-smoke.json`（总计 2 轮），追加：
+新任务保持相同镜像、数据版本和关键训练参数。仅验证恢复时使用 `configs/resume-smoke.json`（总计 2 轮）；从首轮 checkpoint 继续完整训练时使用 `configs/train.json`（总计 20 轮），并追加：
 
 ```text
 --resume-run <previous-run-directory-name>
@@ -197,15 +199,13 @@ bash -n dlc/bootstrap.sh
 
 测试使用普通临时目录模拟挂载，无网络访问，覆盖快照独立、后台重叠、队列反压、退出等待、错误回传、部分归档忽略、摘要拒绝及恢复一致性。
 
-2026-09-07，44 项测试通过，依赖和脚本检查通过。GPU 主机的容器输出确认首轮训练及新容器恢复到第 2 轮完成，测试准确率分别为 56.87% 和 68.61%，两次日志均已归档。此验证使用本地主机目录挂载；详细 run ID 和证据边界见 [验证记录](docs/validation.md)。
-
-DLC 待验收流程：上传资源 → 验证实际挂载版本/关闭上传语义 → 1 轮 GPU 冒烟 → 独立新任务恢复到第 2 轮 → 下载评估。未实际启动 DLC。
+验证结果、运行记录及待验收事项见 [验证记录](docs/validation.md)。
 
 当前按 CIFAR-10 测试集准确率选择最佳模型，正式比较前应拆分验证集。
 
 ## ECS 手动挂载
 
-脚本要求 ECS 安装 ossfs2（已验证版本 2.0.8），并绑定具有目标 OSS 访问权限的 RAM 角色。设置目标存储后按需执行：
+脚本要求 ECS 安装 ossfs2，并绑定具有目标 OSS 访问权限的 RAM 角色。设置目标存储后按需执行：
 
 ```bash
 export VLA_OSS_BUCKET="<bucket>"
@@ -220,7 +220,6 @@ bash training-pipeline/scripts/oss-mount.sh unmount
 以上命令从仓库根目录执行。code 和 data 在 ECS 读写，runs 只读；每个挂载配置 128 MiB 的软内存预算及较低并发。重复 mount 会检查目标来源和权限后跳过，遇到其他文件系统或非空目录会停止。卸载繁忙目录会报错，不强制卸载。
 
 子项目脚本只设置项目名和数据目录，共用仓库根目录 `scripts/oss-mount.sh` 的挂载逻辑。默认 OSS 前缀为 `training-pipeline/`，默认挂载根目录为 `/mnt/oss/training-pipeline`；后续子项目使用不同项目名即可隔离。`VLA_OSS_BUCKET`、`VLA_OSS_REGION`、`VLA_OSS_ROLE` 为必填配置，可通过 `VLA_OSS_MOUNT_ROOT` 调整挂载根目录；内网挂载要求 ECS 与 Bucket 同地域。挂载完成后，通过文件复制发布资源。
-
 
 ## 容器日志归档
 

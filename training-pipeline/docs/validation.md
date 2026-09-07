@@ -2,6 +2,22 @@
 
 按执行时间倒序记录；同一天内按已知执行顺序排列。历史记录未保留具体执行时间的，仅标日期。使用方法见 [README](../README.md)，职责和持久化契约见 [设计说明](design.md)。
 
+## 2026-09-07 — A10 DLC 首轮冒烟成功
+
+- 配置提交：`52cb36cea9d5b9d2acb6f00a6c2df7ff07c82cc1`（`chore(training): 配置 A10 单卡完整训练任务`），仅包含 `dlc/job.yaml`；README、验证记录和 devlog 未包含在该提交中。提交前 YAML dry-run 和 `git diff --check` 通过；完整 20 轮训练尚未执行。
+
+- 任务：`cifar10-a10-smoke`，JobId `dlc1iydukqa2wkd3`；上海工作空间 `vla_learn`（`1506433`）。
+- 制品：代码和数据均为 `release-20260907-100259`；提交前通过 OSS API 确认远端对象已发布，本地制品与工作区源码一致且校验通过。制品 manifest 记录 `git_revision=38dcbdf48dd121e2e92be7b86e43c3994feae611`、`git_dirty=true`，代码摘要为 `d5cb3b4da23817bf1271e6db69853a29f74045980fe78dd4323d095c8d2bf9cb`。制品早于上述配置提交生成，配置 commit 不代表训练制品的源码版本。
+- 环境：`ecs.gn7i-c8g1.2xlarge`，单 Worker、按量付费，驱动设置 `550.127.08`；使用 README 中固定的 PyTorch 2.9.1 / Python 3.12 / CUDA 12.8 公共镜像。结果 config.json 确认 `device=cuda`、`gpu=NVIDIA A10`。
+- 参数：`configs/smoke.json`，1 轮、batch size 128、2 个数据加载 worker；通过提交参数覆盖完整训练 YAML，最长运行 15 分钟，结束保留 0 分钟。
+- 结果：DLC 状态 `Succeeded`；训练样本 50,000，训练 loss 1.4796286177825928、准确率 45.55%；测试样本 10,000，测试 loss 1.1513895341873168、准确率 57.64%。
+- 耗时：从提交到结束总计 318 秒；容器运行约 17 秒，包含初始化、训练、评估和归档，并非纯训练耗时。系统事件显示主要等待在资源准备与镜像拉取。Pod 的 duration=228 秒包含创建后的等待，不作为容器运行时长。
+- run ID：`cifar10-20260907T042008Z-d71ddf6699dd`。
+- 持久化：OSS API 确认该 run 的 config.json、started.json、epochs/0001/checkpoint.pt、metrics.json、complete.json、succeeded.json、train.log 均存在；通过本地只读挂载读取成功标记及首轮 complete.json。checkpoint 大小 7,487,234 字节；complete.json 记录的 SHA256 为 `8fd2fbb25b7f98c6b786b2de87e1a395d78dd2c7170daa7d8454fb3c7a47e880`，本次未独立下载重算。
+- 边界：已验证此 A10/镜像/驱动配置完成首轮 GPU 训练和 OSS 归档；未独立检查 DLC 实际挂载版本及 sync_upload 参数，未验证故障下的持久化语义、新 DLC 任务恢复或 20 轮训练；容器中未另行读取驱动版本。
+- 后续：完整训练 YAML 使用 `configs/train.json`（目标总轮数 20）、90 分钟超时。续训时在 UserCommand 追加 `--resume-run cifar10-20260907T042008Z-d71ddf6699dd`，从第 2 轮跑到第 20 轮；当前尚未追加该参数或提交续训。
+- 费用：尚未核对实际账单；Billing Usage 与 estimate-cost 返回的时间单位存在未解决差异，不将此前小时换算结果记为已确认报价。
+
 ## 2026-09-07 — 实际资源配置与 YAML 预览
 
 - 对象：`dlc/job.yaml`，目标制品版本 `release-20260907-100259`。
@@ -64,8 +80,8 @@
 
 ## 待完成的 DLC 验收
 
-- 发布源码和数据到 YAML 指定的 OSS 版本目录。
-- 核对 PAI 服务授权及实际 runs 挂载版本、sync_upload=true 的关闭上传语义。
-- 在 DLC 完成首轮训练、新任务恢复和日志归档，检查 OSS 对象及新容器可见性。
+- 独立核对实际 runs 挂载版本和 sync_upload=true 的关闭上传语义。
+- 在新的 DLC 任务中恢复首轮 checkpoint，验证跨任务可见性并训练到目标总轮数 20。
+- 下载 checkpoint 做独立校验及评估，核对实际账单。
 
-截至上述记录，未启动 DLC 任务。
+已完成制品发布、A10 首轮训练和 OSS 归档；尚未启动 DLC 续训任务。
