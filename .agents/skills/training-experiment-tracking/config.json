@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "allowed_dirty_paths": [
+    "README.md",
+    "training-pipeline/README.md",
+    "training-pipeline/experiments/index.json",
+    "training-pipeline/docs/validation.md",
+    "docs/devlog.md",
+    ".agents/skills/"
+  ]
+}
