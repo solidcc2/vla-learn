@@ -2,12 +2,31 @@
 
 按执行时间倒序记录；同一天内按已知执行顺序排列。历史记录未保留具体执行时间的，仅标日期。使用方法见 [README](../README.md)，职责和持久化契约见 [设计说明](design.md)。
 
+## 2026-09-08 — 补齐任务索引
+
+- 在[实验索引](../experiments/index.json)中将两次 A10 任务归入 `cifar10-a10-20260907`，明确从冒烟 run 的第 1 轮 checkpoint 恢复至完整训练 run；训练日期为 2026-09-07，补记日期为 2026-09-08。
+- 两条历史记录统一关联仓库版本 `52cb36cea9d5b9d2acb6f00a6c2df7ff07c82cc1`；已核对制品中的 16 个运行代码和训练配置文件与该提交内容一致。
+- 逐轮指标可沿实验索引的续训关系，从两个 run 的原始 metrics.json 汇总；任务配置通过 JobId 查询，原始配置、指标和日志通过索引中的 OSS 结果目录查阅。
+- 通过子项目挂载脚本确认 code/data 可读写、runs 为预期 OSS 只读挂载；逐轮读取 complete.json 并重算 metrics.json 摘要，确认第 1～20 轮连续、指标摘要均匹配。
+- 从该挂载重新读取冒烟第 1 轮和续训第 20 轮 checkpoint，SHA256 均与完成标记一致。此为挂载读回校验，可能命中缓存，不表述为独立下载远端对象或重新评估通过。
+
+## 2026-09-07 — A10 DLC 完整续训成功
+
+- 任务：`cifar10-a10-resume20`，JobId `dlca0eneyttzm9z2`；run ID `cifar10-20260907T044020Z-7c9a6e9afefa`。历史终态为 `Succeeded`，可按 JobId 查询。
+- 来源：`cifar10-20260907T042008Z-d71ddf6699dd/epochs/0001/checkpoint.pt`，SHA256 `8fd2fbb25b7f98c6b786b2de87e1a395d78dd2c7170daa7d8454fb3c7a47e880`。OSS 结果目录中的 config.json metadata 与 train.log 共同确认从 epoch 2 恢复，优化器 learning_rate=0.001，运行至目标总轮数 20。
+- 版本：沿用 `release-20260907-100259` 代码和数据。源码 manifest 为 `38dcbdf48dd121e2e92be7b86e43c3994feae611`、dirty=true，实际代码摘要与首轮一致。基础 YAML 提交为 `52cb36cea9d5b9d2acb6f00a6c2df7ff07c82cc1`；有效 UserCommand 使用 `configs/train.json` 并追加上述 `--resume-run`，不以当前工作区或文档提交替代实际训练版本。
+- 环境：单 NVIDIA A10，`ecs.gn7i-c8g1.2xlarge`；配置驱动 `550.127.08`，实际训练配置记录 PyTorch 2.9.1+cu128、Python 3.12.12、CUDA 12.8。batch size 128、2 个数据加载 worker、seed 42。
+- 结果：第 20 轮训练 loss **0.5765603312**、准确率 **80.246%**；测试 loss **0.5247161975**、准确率 **82.27%**。本次最佳和最终 checkpoint 均为第 20 轮；最佳模型按 CIFAR-10 测试集准确率选择，测试集参与选择，未提供独立验证集结果。
+- 产物：`oss://vla-learn2/training-pipeline/runs/cifar10-20260907T044020Z-7c9a6e9afefa/`。保留第 2～20 轮完整标记、checkpoint、指标、成功标记及日志；完整 20 轮指标由首轮和续训按来源关系组合。最终 checkpoint SHA256 为 `bd01d140a6fa5ce921a5ca64d473c0e90e69d645a393e6f7031acbbdc8ec0f7a`。
+- 耗时：任务生命周期 **539 秒**；由 Pod 启动至任务结束估算的容器运行约 **144 秒**，包含初始化、恢复、训练、评估与归档。加上冒烟任务，两个任务生命周期合计 **857 秒**；此值不是实际计费用量。
+- 验收：已完成新 DLC 任务恢复、epoch 2～20 训练及结果归档。实际账单、独立下载后的评估，以及 DLC 实际挂载版本/参数与故障场景仍未验收。
+
 ## 2026-09-07 — A10 DLC 首轮冒烟成功
 
-- 配置提交：`52cb36cea9d5b9d2acb6f00a6c2df7ff07c82cc1`（`chore(training): 配置 A10 单卡完整训练任务`），仅包含 `dlc/job.yaml`；README、验证记录和 devlog 未包含在该提交中。提交前 YAML dry-run 和 `git diff --check` 通过；完整 20 轮训练尚未执行。
+- 配置提交：`52cb36cea9d5b9d2acb6f00a6c2df7ff07c82cc1`（`chore(training): 配置 A10 单卡完整训练任务`），仅包含 `dlc/job.yaml`；README、验证记录和 devlog 未包含在该提交中。提交前 YAML dry-run 和 `git diff --check` 通过；此冒烟记录形成时完整 20 轮训练尚未执行，后续结果见上方续训记录。
 
 - 任务：`cifar10-a10-smoke`，JobId `dlc1iydukqa2wkd3`；上海工作空间 `vla_learn`（`1506433`）。
-- 制品：代码和数据均为 `release-20260907-100259`；提交前通过 OSS API 确认远端对象已发布，本地制品与工作区源码一致且校验通过。制品 manifest 记录 `git_revision=38dcbdf48dd121e2e92be7b86e43c3994feae611`、`git_dirty=true`，代码摘要为 `d5cb3b4da23817bf1271e6db69853a29f74045980fe78dd4323d095c8d2bf9cb`。制品早于上述配置提交生成，配置 commit 不代表训练制品的源码版本。
+- 制品：代码和数据均为 `release-20260907-100259`；提交前通过 OSS API 确认远端对象已发布，本地制品与工作区源码一致且校验通过。制品 manifest 记录 `git_revision=38dcbdf48dd121e2e92be7b86e43c3994feae611`、`git_dirty=true`，代码摘要为 `d5cb3b4da23817bf1271e6db69853a29f74045980fe78dd4323d095c8d2bf9cb`。制品早于上述配置提交生成，该提交与制品内容的对应关系已在上述补记中逐文件核对。
 - 环境：`ecs.gn7i-c8g1.2xlarge`，单 Worker、按量付费，驱动设置 `550.127.08`；使用 README 中固定的 PyTorch 2.9.1 / Python 3.12 / CUDA 12.8 公共镜像。结果 config.json 确认 `device=cuda`、`gpu=NVIDIA A10`。
 - 参数：`configs/smoke.json`，1 轮、batch size 128、2 个数据加载 worker；通过提交参数覆盖完整训练 YAML，最长运行 15 分钟，结束保留 0 分钟。
 - 结果：DLC 状态 `Succeeded`；训练样本 50,000，训练 loss 1.4796286177825928、准确率 45.55%；测试样本 10,000，测试 loss 1.1513895341873168、准确率 57.64%。
@@ -15,7 +34,7 @@
 - run ID：`cifar10-20260907T042008Z-d71ddf6699dd`。
 - 持久化：OSS API 确认该 run 的 config.json、started.json、epochs/0001/checkpoint.pt、metrics.json、complete.json、succeeded.json、train.log 均存在；通过本地只读挂载读取成功标记及首轮 complete.json。checkpoint 大小 7,487,234 字节；complete.json 记录的 SHA256 为 `8fd2fbb25b7f98c6b786b2de87e1a395d78dd2c7170daa7d8454fb3c7a47e880`，本次未独立下载重算。
 - 边界：已验证此 A10/镜像/驱动配置完成首轮 GPU 训练和 OSS 归档；未独立检查 DLC 实际挂载版本及 sync_upload 参数，未验证故障下的持久化语义、新 DLC 任务恢复或 20 轮训练；容器中未另行读取驱动版本。
-- 后续：完整训练 YAML 使用 `configs/train.json`（目标总轮数 20）、90 分钟超时。续训时在 UserCommand 追加 `--resume-run cifar10-20260907T042008Z-d71ddf6699dd`，从第 2 轮跑到第 20 轮；当前尚未追加该参数或提交续训。
+- 后续：完整训练 YAML 使用 `configs/train.json`（目标总轮数 20）、90 分钟超时。续训时在 UserCommand 追加 `--resume-run cifar10-20260907T042008Z-d71ddf6699dd`，从第 2 轮跑到第 20 轮；当时尚未追加该参数或提交续训，后续已按此方式完成。
 - 费用：尚未核对实际账单；Billing Usage 与 estimate-cost 返回的时间单位存在未解决差异，不将此前小时换算结果记为已确认报价。
 
 ## 2026-09-07 — 实际资源配置与 YAML 预览
@@ -81,7 +100,7 @@
 ## 待完成的 DLC 验收
 
 - 独立核对实际 runs 挂载版本和 sync_upload=true 的关闭上传语义。
-- 在新的 DLC 任务中恢复首轮 checkpoint，验证跨任务可见性并训练到目标总轮数 20。
-- 下载 checkpoint 做独立校验及评估，核对实际账单。
+- 独立下载 checkpoint 并重新评估；当前已完成挂载读回摘要核验。
+- 核对实际账单；原报价接口的时间单位差异仍待厘清。
 
-已完成制品发布、A10 首轮训练和 OSS 归档；尚未启动 DLC 续训任务。
+已完成制品发布、A10 首轮冒烟、新 DLC 任务恢复至第 20 轮和结果归档；两次任务及恢复关系见[实验索引](../experiments/index.json)。
