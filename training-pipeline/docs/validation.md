@@ -2,6 +2,17 @@
 
 按执行时间倒序记录；同一天内按已知执行顺序排列。历史记录未保留具体执行时间的，仅标日期。使用方法见 [README](../README.md)，职责和持久化契约见 [设计说明](design.md)。
 
+## 2026-09-09 — Soft Medoid 池化实验
+
+本实验源于对 MaxPool 的一个思考：MaxPool 只保留局部最大响应，不一定能代表整个感受野的主要特征。我们希望改为聚合局部特征分布中更具代表性的内容。调研发现，Geisler 等人在 NeurIPS 2020 的 [Reliable Graph Neural Networks via Robust Aggregation](https://papers.nips.cc/paper/2020/hash/99e314b1b43706773153e7ef375fc68c-Abstract.html) 中提出了相近的 Soft Medoid 方法，并给出了可微实现。我们参考该方法，将其从 GNN 邻域聚合适配为 CNN 的局部 `2×2` 池化：计算窗口内特征向量之间的距离，通过 softmax 提高中心特征的权重，再进行加权聚合。
+
+实验将 SimpleCNN 中三处 MaxPool 全部替换为 Soft Medoid，其余训练配置保持不变。训练 20 轮后，Soft Medoid 的最佳测试准确率为 82.17%，MaxPool 基线为 82.27%；测试损失分别为 0.5232 和 0.5247。两者最终效果基本持平。Soft Medoid 的实际训练耗时为 2 分 29 秒，基线为 2 分 23 秒，没有明显性能损失。
+
+实验说明，在当前 CIFAR-10 SimpleCNN 中，局部代表性聚合可以有效替代局部极值聚合，并保持相近的分类效果和训练效率，但暂未体现出明确的精度优势。
+
+实验标识：`cifar10-soft-medoid-a10-20260909`
+代码提交：`3ac80ac7e51f51d17923d87a488a0b26d187db2e`
+
 ## 2026-09-08 — 补齐任务索引
 
 - 在[实验索引](../experiments/index.json)中将两次 A10 任务归入 `cifar10-a10-20260907`，明确从冒烟 run 的第 1 轮 checkpoint 恢复至完整训练 run；训练日期为 2026-09-07，补记日期为 2026-09-08。

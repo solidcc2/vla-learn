@@ -1,5 +1,6 @@
 ## 20260909
 1. 增加笔记，对于SimpleCNN的网络结构&主要算子总结。
+2. 验证“局部最大响应未必最具代表性”的观点，以 Soft Medoid 池化替换 MaxPool；分类效果与训练耗时均与基线基本持平。
 
 ## 20260908
 1. 补齐两次 A10 DLC 训练的[实验索引](../training-pipeline/experiments/index.json)，关联首轮冒烟和完整续训；挂载读回核对两份 checkpoint 摘要。详见[验证记录](../training-pipeline/docs/validation.md)。
