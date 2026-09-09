@@ -29,6 +29,20 @@
           }
         }
       }
+    },
+    "cifar10-soft-medoid-a10-20260909": {
+      "runs": {
+        "run:cifar10-20260909T112910Z-2aab7f78c0e0": {
+          "job_id": "dlc12ld24qqyf7ix",
+          "run_id": "cifar10-20260909T112910Z-2aab7f78c0e0",
+          "status": "Succeeded",
+          "git_commit": "3ac80ac7e51f51d17923d87a488a0b26d187db2e",
+          "training_date": "2026-09-09T19:29:10+08:00",
+          "recorded_date": "2026-09-09T19:38:43+08:00",
+          "output_uri": "oss://vla-learn2/training-pipeline/runs/cifar10-20260909T112910Z-2aab7f78c0e0/",
+          "resume_from": null
+        }
+      }
     }
   }
 }
