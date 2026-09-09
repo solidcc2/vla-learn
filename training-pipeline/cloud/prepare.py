@@ -16,6 +16,7 @@ def prepare_code(project_dir: Path, output_dir: Path) -> Path:
     for directory, patterns in {
         "persistence": ("__init__.py", "files.py", "runs.py"),
         "cloud": ("__init__.py", "launch.py", "resources.py"),
+        "operators": ("__init__.py", "soft_medoid_pool.py"),
         "configs": ("*.json",),
     }.items():
         root = project_dir / directory
