@@ -1,3 +1,6 @@
+## 20260909
+1. 增加笔记，对于SimpleCNN的网络结构&主要算子总结。
+
 ## 20260908
 1. 补齐两次 A10 DLC 训练的[实验索引](../training-pipeline/experiments/index.json)，关联首轮冒烟和完整续训；挂载读回核对两份 checkpoint 摘要。详见[验证记录](../training-pipeline/docs/validation.md)。
 2. 拆分阿里云资源、DLC 任务、训练制品和实验溯源 skills，新增工作区检查与实验索引登记脚本。

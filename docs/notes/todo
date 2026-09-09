@@ -1,2 +1,4 @@
-1. 补充对各类损失函数的理解。
-2. 补充对常用算子的笔记。
+[] 补充对各类损失函数的理解。
+[x] 补充对常用算子/网络笔记 - SimpleCNN算子.md
+[] 补充对各类optimizer + schedule的理解。
+[] amp & checkpoint。
