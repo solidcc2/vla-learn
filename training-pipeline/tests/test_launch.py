@@ -31,7 +31,7 @@ def small_job(monkeypatch):
                                 torch.tensor([0, 1] * 4))
         return DataLoader(dataset, batch_size=batch_size, shuffle=True), DataLoader(dataset, batch_size=batch_size)
     monkeypatch.setattr(train, "create_dataloaders", loaders)
-    monkeypatch.setattr(train, "SimpleCNN", lambda: nn.Linear(3, 2))
+    monkeypatch.setattr(train, "create_model", lambda name: nn.Linear(3, 2))
 
 
 def job_args(tmp_path, resource, epochs=1, *extra):
@@ -99,7 +99,7 @@ def test_bash_runs_copied_code_and_rejects_incomplete_release(tmp_path, damage):
     from cloud.prepare import prepare_code
     project = tmp_path / "project"
     (project / "cloud").mkdir(parents=True)
-    for name in ("train.py", "evaluate.py", "model.py", "data.py", "engine.py", "checkpoint.py"):
+    for name in ("train.py", "evaluate.py", "data.py", "engine.py", "checkpoint.py"):
         (project / name).write_text("pass")
     (project / "cloud/__init__.py").write_text("")
     (project / "cloud/launch.py").write_text(
@@ -171,7 +171,7 @@ def test_real_cifar_loader_cnn_and_evaluation_work_offline(tmp_path, monkeypatch
     from checkpoint import load_checkpoint
     from data import create_dataloaders
     from engine import evaluate
-    from model import SimpleCNN
+    from models import SimpleCNN
     from cloud.launch import run_job
     from cloud.resources import pack_dataset
 

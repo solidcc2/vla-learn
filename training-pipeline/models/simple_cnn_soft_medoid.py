@@ -1,12 +1,12 @@
-"""The convolutional neural network used by the baseline."""
+"""SimpleCNN model with Soft Medoid pooling."""
 
 from torch import Tensor, nn
 
 from operators import SoftMedoidPool2d
 
 
-class SimpleCNN(nn.Module):
-    """A compact CNN designed for 3 x 32 x 32 CIFAR images."""
+class SimpleCNNWithSoftMedoid(nn.Module):
+    """A compact CIFAR-10 CNN using Soft Medoid pooling."""
 
     def __init__(self, num_classes: int = 10) -> None:
         super().__init__()
@@ -14,17 +14,14 @@ class SimpleCNN(nn.Module):
             raise ValueError("num_classes must be greater than zero")
 
         self.features = nn.Sequential(
-            # 3 x 32 x 32 -> 32 x 16 x 16
             nn.Conv2d(3, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
             SoftMedoidPool2d(kernel_size=2),
-            # 32 x 16 x 16 -> 64 x 8 x 8
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
             SoftMedoidPool2d(kernel_size=2),
-            # 64 x 8 x 8 -> 128 x 4 x 4
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),

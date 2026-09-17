@@ -28,7 +28,7 @@ def small_training(monkeypatch):
             DataLoader(RandomDataset(), batch_size=batch_size),
         )
     monkeypatch.setattr(train, "create_dataloaders", loaders)
-    monkeypatch.setattr(train, "SimpleCNN", lambda: nn.Linear(3, 2))
+    monkeypatch.setattr(train, "create_model", lambda name: nn.Linear(3, 2))
 
 
 def train_args(output, epochs, *extra):

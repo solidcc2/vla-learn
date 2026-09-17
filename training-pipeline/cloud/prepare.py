@@ -12,10 +12,11 @@ from persistence.files import sha256_file, write_json
 
 def prepare_code(project_dir: Path, output_dir: Path) -> Path:
     # Explicit runtime allowlist avoids collecting local credentials, datasets or venv.
-    files = [(name, project_dir / name) for name in ("train.py", "evaluate.py", "model.py", "data.py", "engine.py", "checkpoint.py")]
+    files = [(name, project_dir / name) for name in ("train.py", "evaluate.py", "data.py", "engine.py", "checkpoint.py")]
     for directory, patterns in {
         "persistence": ("__init__.py", "files.py", "runs.py"),
         "cloud": ("__init__.py", "launch.py", "resources.py"),
+        "models": ("*.py",),
         "operators": ("__init__.py", "soft_medoid_pool.py"),
         "configs": ("*.json",),
     }.items():

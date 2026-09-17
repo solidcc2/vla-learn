@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from model import SimpleCNN
+from models import SimpleCNN
 
 
 def test_simple_cnn_returns_one_logit_per_class() -> None:

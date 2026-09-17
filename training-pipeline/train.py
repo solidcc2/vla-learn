@@ -16,7 +16,7 @@ from torch import nn
 from checkpoint import load_checkpoint, save_checkpoint, snapshot_checkpoint
 from data import create_dataloaders
 from engine import evaluate, train_one_epoch
-from model import SimpleCNN
+from models import MODEL_NAMES, create_model
 from persistence.files import atomic_path, write_json
 
 
@@ -34,6 +34,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--data-version", default="cifar10", help="Dataset identity checked on resume")
+    parser.add_argument("--model", choices=MODEL_NAMES, default="simple_cnn")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
@@ -50,7 +51,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                 "epochs": int, "batch_size": int, "learning_rate": (int, float),
                 "data_dir": str, "data_version": str, "output_dir": str,
                 "num_workers": int, "device": str, "seed": int,
-                "download": bool, "resume": str,
+                "download": bool, "resume": str, "model": str,
             }
             for key, value in config.items():
                 expected = allowed.get(key)
@@ -66,6 +67,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("num-workers must be nonnegative and seed must be in [0, 2**32)")
     if args.device not in ("auto", "cpu", "cuda"):
         parser.error("device must be auto, cpu or cuda")
+    if args.model not in MODEL_NAMES:
+        parser.error(f"model must be one of: {', '.join(MODEL_NAMES)}")
     if not args.data_version:
         parser.error("data-version must not be empty")
     return args
@@ -87,11 +90,11 @@ def run_training(args: argparse.Namespace, publisher: Publisher | None = None, m
     train_loader, test_loader = create_dataloaders(
         args.data_dir, args.batch_size, args.num_workers, download=args.download,
     )
-    model = SimpleCNN().to(device)
+    model = create_model(args.model).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     compatibility = {
-        "model": "SimpleCNN", "data_version": args.data_version,
+        "model": args.model, "data_version": args.data_version,
         "batch_size": args.batch_size, "num_workers": args.num_workers, "seed": args.seed,
     }
     best_accuracy = -1.0
