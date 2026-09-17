@@ -1,6 +1,7 @@
 ## 20260917
 1. 拆分并支持选择 MaxPool、Soft Medoid 两种 CNN 模型。
 2. 增加 ResNet 残差网络笔记。
+3. 增加cifar10的resnet18 model，未训练，待优化器参数化后再训练
 
 ## 20260909
 1. 增加笔记，对于SimpleCNN的网络结构&主要算子总结。
