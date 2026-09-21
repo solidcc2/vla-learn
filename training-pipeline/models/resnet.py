@@ -3,18 +3,20 @@
 import torch
 from torch import Tensor, nn
 
+
 class ResidualBlock(nn.Module):
-    def __init__(self, branch, shortcut = None):
+    def __init__(self, branch: nn.Module, shortcut: nn.Module | None = None) -> None:
         super().__init__()
         self.branch = branch
         self.shortcut = shortcut if shortcut is not None else nn.Identity()
     
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         return torch.relu(self.branch(x) + self.shortcut(x))
+
 
 class ResNet18(nn.Module):
 
-    def __init__(self, num_classes: int = 10) -> None:
+    def __init__(self, num_classes: int = 10, zero_init_residual: bool = True) -> None:
         super().__init__()
         if num_classes <= 0:
             raise ValueError("num_classes must be greater than zero")
@@ -121,7 +123,36 @@ class ResNet18(nn.Module):
             nn.Linear(512 * 1 * 1, num_classes)
         )
 
-    def forward(self, x):
+        self._initialize_weights(zero_init_residual)
+
+    def _initialize_weights(self, zero_init_residual: bool) -> None:
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(
+                    module.weight, mode="fan_out", nonlinearity="relu",
+                )
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+            elif isinstance(module, nn.BatchNorm2d):
+                if module.weight is not None:
+                    nn.init.ones_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+            elif isinstance(module, nn.Linear):
+                nn.init.normal_(module.weight, mean=0.0, std=0.01)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+
+        if zero_init_residual:
+            for module in self.modules():
+                if isinstance(module, ResidualBlock):
+                    final_norm = [
+                        child for child in module.branch.modules()
+                        if isinstance(child, nn.BatchNorm2d)
+                    ][-1]
+                    nn.init.zeros_(final_norm.weight)
+
+    def forward(self, x: Tensor) -> Tensor:
         x = self.features(x)
         x = self.pool(x)
         x = self.classifier(x)

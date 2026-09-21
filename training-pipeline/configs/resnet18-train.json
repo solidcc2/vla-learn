@@ -9,7 +9,8 @@
   "model": {
     "target": "models.resnet:ResNet18",
     "params": {
-      "num_classes": 10
+      "num_classes": 10,
+      "zero_init_residual": true
     }
   },
   "optimizer": {
