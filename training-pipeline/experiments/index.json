@@ -43,6 +43,20 @@
           "resume_from": null
         }
       }
+    },
+    "cifar10-resnet18-a10-20260922": {
+      "runs": {
+        "run:cifar10-resnet18-20260921T220930Z-5d124b52f5a7": {
+          "job_id": "dlc2cwf7ufugmkvi",
+          "run_id": "cifar10-resnet18-20260921T220930Z-5d124b52f5a7",
+          "status": "Succeeded",
+          "git_commit": "bde5239d0f2fb8290d61c5348e9ac8b732beddf9",
+          "training_date": "2026-09-22T06:09:27+08:00",
+          "recorded_date": "2026-09-22T07:00:54+08:00",
+          "output_uri": "oss://vla-learn2/training-pipeline/runs/cifar10-resnet18-20260921T220930Z-5d124b52f5a7/",
+          "resume_from": null
+        }
+      }
     }
   }
 }
