@@ -1,0 +1,31 @@
+{
+  "epochs": 200,
+  "checkpoint_interval": 20,
+  "batch_size": 128,
+  "num_workers": 2,
+  "device": "cuda",
+  "seed": 42,
+  "download": false,
+  "model": {
+    "target": "models.resnet:ResNet18",
+    "params": {
+      "num_classes": 10
+    }
+  },
+  "optimizer": {
+    "target": "torch.optim:SGD",
+    "params": {
+      "lr": 0.1,
+      "momentum": 0.9,
+      "weight_decay": 0.0005,
+      "nesterov": true
+    }
+  },
+  "scheduler": {
+    "target": "torch.optim.lr_scheduler:CosineAnnealingLR",
+    "params": {
+      "T_max": 200,
+      "eta_min": 0.00001
+    }
+  }
+}
