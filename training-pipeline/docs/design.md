@@ -18,12 +18,12 @@
 ## 持久化契约
 
 - 本地 CLI 保存使用原子替换与本地指标追加；挂载保存仅创建独立对象，不依赖覆盖、追加或 rename。
-- 两种保存方式共用 checkpoint 字段定义。快照包括模型、Adam、配置、最佳指标与 Python/NumPy/Torch CPU/CUDA RNG。
+- 两种保存方式共用 checkpoint 字段定义。快照包括模型、动态配置的优化器与 scheduler、配置、最佳指标及 Python/NumPy/Torch CPU/CUDA RNG。
 - 后台队列包含在途写入，默认容量 1、可配置为正整数；反压发生在快照分配之前。CPU 快照同步复制，后台负责序列化和 I/O。
 - 挂载必须在 close 时等待上传完成并返回错误。应用 flush/fsync/close 后读回校验，complete.json 最后写；依赖 ossfs 2.0 sync_upload=true 的持久化契约。
 - 错误阻止后续队列发布；正常结束等待所有保存。未完成轮次不可恢复，已完成数据损坏直接报错。
-- `--epochs` 是目标总轮数；恢复保留优化器学习率并核对数据版本、模型、batch size、workers 和 seed。
-- 只承诺同一环境下测试覆盖的连续/恢复一致性；旧 checkpoint 缺少 RNG/配置时警告，跨设备/版本不保证逐位一致。
+- `--epochs` 是目标总轮数；恢复核对模型、优化器、scheduler、数据版本、batch size 和 workers，并从 checkpoint 恢复原始随机状态。
+- 只承诺同一环境下测试覆盖的连续/恢复一致性；格式 3 不兼容旧 checkpoint，跨设备/版本不保证逐位一致。
 
 ## 验收
 

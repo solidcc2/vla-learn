@@ -28,13 +28,32 @@ def small_training(monkeypatch):
             DataLoader(RandomDataset(), batch_size=batch_size),
         )
     monkeypatch.setattr(train, "create_dataloaders", loaders)
-    monkeypatch.setattr(train, "create_model", lambda name: nn.Linear(3, 2))
+    monkeypatch.setattr(train, "create_model", lambda spec: nn.Linear(3, 2))
 
 
 def train_args(output, epochs, *extra):
+    config = output.parent / f"{output.name}.json"
+    config.write_text(json.dumps({
+        "epochs": epochs,
+        "batch_size": 4,
+        "device": "cpu",
+        "download": False,
+        "seed": 42,
+        "model": {
+            "target": "torch.nn:Linear",
+            "params": {"in_features": 3, "out_features": 2},
+        },
+        "optimizer": {
+            "target": "torch.optim:Adam",
+            "params": {"lr": 0.001},
+        },
+        "scheduler": {
+            "target": "torch.optim.lr_scheduler:CosineAnnealingLR",
+            "params": {"T_max": 2, "eta_min": 0.0001},
+        },
+    }))
     return train.parse_args([
-        "--output-dir", str(output), "--epochs", str(epochs),
-        "--device", "cpu", "--batch-size", "4", "--no-download", *extra,
+        "--config", str(config), "--output-dir", str(output), *extra,
     ])
 
 
@@ -53,7 +72,7 @@ def assert_tree_equal(left, right):
         assert left == right
 
 
-def test_resume_matches_continuous_training_with_adam_and_rng(tmp_path, small_training):
+def test_resume_matches_continuous_training_with_scheduler_and_rng(tmp_path, small_training):
     metadata = {"source": "local-test"}
     train.run_training(train_args(tmp_path / "full", 2), metadata=metadata)
     config = json.loads((tmp_path / "full/config.json").read_text())
@@ -62,17 +81,19 @@ def test_resume_matches_continuous_training_with_adam_and_rng(tmp_path, small_tr
     train.run_training(train_args(tmp_path / "first", 1))
     train.run_training(train_args(
         tmp_path / "resumed", 2, "--resume", str(tmp_path / "first/last.pt"),
-        "--learning-rate", "0.9",
+        "--seed", "99",
     ))
     full = torch.load(tmp_path / "full/last.pt", weights_only=True)
     resumed = torch.load(tmp_path / "resumed/last.pt", weights_only=True)
     assert full["epoch"] == resumed["epoch"] == 2
     assert_tree_equal(full["model_state_dict"], resumed["model_state_dict"])
     assert_tree_equal(full["optimizer_state_dict"], resumed["optimizer_state_dict"])
+    assert_tree_equal(full["scheduler_state_dict"], resumed["scheduler_state_dict"])
     assert full["best_accuracy"] == resumed["best_accuracy"]
     metrics = [json.loads(line) for line in (tmp_path / "resumed/metrics.jsonl").read_text().splitlines()]
     assert [row["epoch"] for row in metrics] == [2]
-    assert json.loads((tmp_path / "resumed/config.json").read_text())["learning_rate"] == 0.001
+    assert metrics[0]["learning_rates"] == [0.00055]
+    assert json.loads((tmp_path / "resumed/config.json").read_text())["seed"] == 42
 
 
 def test_resume_rejects_conflicting_batch_size(tmp_path, small_training):
@@ -92,12 +113,42 @@ def test_resume_rejects_already_completed_target(tmp_path, small_training):
         ))
 
 
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("optimizer", {"target": "torch.optim:SGD", "params": {"lr": 0.001}}),
+        ("scheduler", None),
+    ],
+)
+def test_resume_rejects_conflicting_training_recipe(
+    tmp_path, small_training, field, replacement,
+):
+    train.run_training(train_args(tmp_path / "first", 1))
+    args = train_args(
+        tmp_path / "second", 2,
+        "--resume", str(tmp_path / "first/last.pt"),
+    )
+    setattr(args, field, replacement)
+    with pytest.raises(ValueError, match=field):
+        train.run_training(args)
+
+
+def base_config(**overrides):
+    config = {
+        "model": {"target": "models.simple_cnn:SimpleCNN", "params": {}},
+        "optimizer": {"target": "torch.optim:Adam", "params": {"lr": 0.001}},
+        "scheduler": None,
+    }
+    config.update(overrides)
+    return config
+
+
 def test_config_cli_overrides_and_unknown_keys(tmp_path):
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"epochs": 3, "download": False, "batch_size": 8}))
+    config.write_text(json.dumps(base_config(epochs=3, download=False, batch_size=8)))
     args = train.parse_args(["--config", str(config), "--epochs", "5"])
     assert (args.epochs, args.batch_size, args.download) == (5, 8, False)
-    config.write_text('{"epohcs": 3}')
+    config.write_text(json.dumps(base_config(epohcs=3)))
     with pytest.raises(SystemExit):
         train.parse_args(["--config", str(config)])
 
@@ -105,6 +156,6 @@ def test_config_cli_overrides_and_unknown_keys(tmp_path):
 @pytest.mark.parametrize("config", [{"num_workers": -1}, {"epochs": "3"}, {"download": "false"}])
 def test_config_rejects_invalid_types_and_values(tmp_path, config):
     path = tmp_path / "config.json"
-    path.write_text(json.dumps(config))
+    path.write_text(json.dumps(base_config(**config)))
     with pytest.raises(SystemExit):
         train.parse_args(["--config", str(path)])

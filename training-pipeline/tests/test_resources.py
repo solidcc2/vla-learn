@@ -71,7 +71,7 @@ def test_pack_only_ships_runtime_files(tmp_path):
     from cloud.prepare import prepare_code
     project = tmp_path / "project"
     project.mkdir()
-    for name in ("train.py", "evaluate.py", "data.py", "engine.py", "checkpoint.py", "README.md", ".env", "secret.json"):
+    for name in ("train.py", "evaluate.py", "data.py", "engine.py", "checkpoint.py", "components.py", "training_config.py", "README.md", ".env", "secret.json"):
         (project / name).write_text("content")
     for name in ("cloud", "persistence", "models", "venv", "data", "outputs"):
         (project / name).mkdir()
@@ -88,7 +88,7 @@ def test_pack_only_ships_runtime_files(tmp_path):
     (project / "dlc/bootstrap.sh").write_text("entry")
     release = prepare_code(project, tmp_path / "packed")
     names = {p.relative_to(release).as_posix() for p in release.rglob("*") if p.is_file()}
-    assert {"train.py", "evaluate.py", "cloud/launch.py", "models/simple_cnn.py", "data.py", "engine.py", "checkpoint.py", "persistence/files.py", "persistence/runs.py"} <= names
+    assert {"train.py", "evaluate.py", "cloud/launch.py", "models/simple_cnn.py", "data.py", "engine.py", "checkpoint.py", "components.py", "training_config.py", "persistence/files.py", "persistence/runs.py"} <= names
     assert "README.md" not in names
     assert "cloud/prepare.py" not in names
     assert not any("venv/" in name or "data/" in name or "outputs/" in name or ".env" in name or "secret" in name or "__pycache__" in name for name in names)

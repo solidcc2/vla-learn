@@ -1,33 +1,60 @@
 import pytest
+import torch
 from torch import nn
 
-from models import (
-    MODEL_NAMES,
-    SimpleCNN,
-    SimpleCNNWithSoftMedoid,
-    create_model,
-)
+from components import create_model, create_optimizer, create_scheduler, resolve_target
+from models.resnet import ResNet18
 
 
-@pytest.mark.parametrize(
-    ("name", "model_type"),
-    (
-        ("simple_cnn", SimpleCNN),
-        ("simple_cnn_soft_medoid", SimpleCNNWithSoftMedoid),
-    ),
-)
-def test_create_model_builds_registered_model(name, model_type) -> None:
-    model = create_model(name, num_classes=3)
-
-    assert isinstance(model, model_type)
-    assert isinstance(model.classifier[-1], nn.Linear)
+def test_create_model_loads_resnet_from_python_target() -> None:
+    model = create_model({
+        "target": "models.resnet:ResNet18",
+        "params": {"num_classes": 3},
+    })
+    assert isinstance(model, ResNet18)
     assert model.classifier[-1].out_features == 3
 
+def test_resnet18_forward_has_expected_shape() -> None:
+    model = ResNet18(num_classes=10).eval()
+    inputs = torch.randn(2, 3, 32, 32)
 
-def test_model_names_lists_registered_models() -> None:
-    assert MODEL_NAMES == ("simple_cnn", "simple_cnn_soft_medoid")
+    with torch.inference_mode():
+        outputs = model(inputs)
+
+    assert outputs.shape == (2, 10)
 
 
-def test_create_model_rejects_unknown_name() -> None:
-    with pytest.raises(ValueError, match="Unknown model 'missing'"):
-        create_model("missing")
+@pytest.mark.parametrize("target", ["missing", "models.missing:Model", "models.simple_cnn:Missing"])
+def test_resolve_target_rejects_invalid_or_missing_target(target) -> None:
+    with pytest.raises(ValueError):
+        resolve_target(target)
+
+
+def test_create_model_rejects_non_module_class() -> None:
+    with pytest.raises(TypeError, match="nn.Module"):
+        create_model({"target": "builtins:dict", "params": {}})
+
+
+def test_optimizer_and_cosine_scheduler_are_configured() -> None:
+    model = nn.Linear(3, 2)
+    optimizer = create_optimizer({
+        "target": "torch.optim:SGD",
+        "params": {"lr": 0.1, "momentum": 0.9},
+    }, model.parameters())
+    scheduler = create_scheduler({
+        "target": "torch.optim.lr_scheduler:CosineAnnealingLR",
+        "params": {"T_max": 2, "eta_min": 0.01},
+    }, optimizer)
+    assert isinstance(optimizer, torch.optim.SGD)
+    assert isinstance(scheduler, torch.optim.lr_scheduler.CosineAnnealingLR)
+    assert create_scheduler(None, optimizer) is None
+
+
+def test_metric_scheduler_is_rejected() -> None:
+    model = nn.Linear(3, 2)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    with pytest.raises(TypeError, match="requires arguments"):
+        create_scheduler({
+            "target": "torch.optim.lr_scheduler:ReduceLROnPlateau",
+            "params": {},
+        }, optimizer)

@@ -31,13 +31,24 @@ def small_job(monkeypatch):
                                 torch.tensor([0, 1] * 4))
         return DataLoader(dataset, batch_size=batch_size, shuffle=True), DataLoader(dataset, batch_size=batch_size)
     monkeypatch.setattr(train, "create_dataloaders", loaders)
-    monkeypatch.setattr(train, "create_model", lambda name: nn.Linear(3, 2))
+    monkeypatch.setattr(train, "create_model", lambda spec: nn.Linear(3, 2))
 
 
 def job_args(tmp_path, resource, epochs=1, *extra):
     from cloud.launch import parse_args
     config = tmp_path / f"training-{epochs}.json"
-    config.write_text(json.dumps({"device": "cpu", "epochs": epochs, "batch_size": 4}))
+    config.write_text(json.dumps({
+        "device": "cpu", "epochs": epochs, "batch_size": 4,
+        "model": {
+            "target": "models.simple_cnn:SimpleCNN",
+            "params": {"num_classes": 10},
+        },
+        "optimizer": {
+            "target": "torch.optim:Adam",
+            "params": {"lr": 0.001},
+        },
+        "scheduler": None,
+    }))
     return parse_args([
         "--config", str(config), "--data-resource-dir", str(resource),
         "--work-dir", str(tmp_path / "work"), "--runs-dir", str(tmp_path / "runs"), *extra,
@@ -56,7 +67,7 @@ def test_full_job_then_resume_publishes_two_distinct_runs(tmp_path, staged_data,
     from test_train import assert_tree_equal
     full = run_job(job_args(tmp_path, staged_data, 2))
     continuous = torch.load(Path(full["output_dir"]) / "epochs/0002/checkpoint.pt", weights_only=True)
-    for key in ("model_state_dict", "optimizer_state_dict", "rng_state", "best_accuracy"):
+    for key in ("model_state_dict", "optimizer_state_dict", "scheduler_state_dict", "rng_state", "best_accuracy"):
         assert_tree_equal(continuous[key], checkpoint[key])
     config = json.loads((Path(second["output_dir"]) / "config.json").read_text())
     assert config["metadata"]["torch_version"] == "2.8.0+cpu"
@@ -99,7 +110,7 @@ def test_bash_runs_copied_code_and_rejects_incomplete_release(tmp_path, damage):
     from cloud.prepare import prepare_code
     project = tmp_path / "project"
     (project / "cloud").mkdir(parents=True)
-    for name in ("train.py", "evaluate.py", "data.py", "engine.py", "checkpoint.py"):
+    for name in ("train.py", "evaluate.py", "data.py", "engine.py", "checkpoint.py", "components.py", "training_config.py"):
         (project / name).write_text("pass")
     (project / "cloud/__init__.py").write_text("")
     (project / "cloud/launch.py").write_text(
@@ -168,7 +179,7 @@ def test_real_cifar_loader_cnn_and_evaluation_work_offline(tmp_path, monkeypatch
     import pickle
     import numpy as np
     from torchvision.datasets import CIFAR10
-    from checkpoint import load_checkpoint
+    from checkpoint import read_checkpoint, restore_checkpoint
     from data import create_dataloaders
     from engine import evaluate
     from models import SimpleCNN
@@ -195,7 +206,8 @@ def test_real_cifar_loader_cnn_and_evaluation_work_offline(tmp_path, monkeypatch
     first = run_job(job_args(tmp_path, resources))
     second = run_job(job_args(tmp_path, resources, 2, "--resume-run", first["run_id"]))
     model = SimpleCNN()
-    state = load_checkpoint(Path(second["output_dir"]) / "epochs/0002/checkpoint.pt", model, None, torch.device("cpu"))
+    payload = read_checkpoint(Path(second["output_dir"]) / "epochs/0002/checkpoint.pt")
+    state = restore_checkpoint(payload, model, None, None, torch.device("cpu"))
     _, test_loader = create_dataloaders(tmp_path / "data", 4, download=False)
     metrics = evaluate(model, test_loader, nn.CrossEntropyLoss(), torch.device("cpu"))
     assert state.epoch == 2

@@ -12,7 +12,7 @@ from torch import nn
 
 from persistence.files import atomic_path
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 
 
 def _cpu_copy(value):
@@ -30,17 +30,20 @@ def _cpu_copy(value):
     return copy.deepcopy(value)
 
 
-def _checkpoint_payload(model, optimizer, epoch, best_accuracy, config):
+def _checkpoint_payload(model, optimizer, scheduler, epoch, best_accuracy, config):
     return {
         "format_version": FORMAT_VERSION, "epoch": epoch, "best_accuracy": best_accuracy,
         "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
-        "config": config or {}, "rng_state": capture_rng_state(),
+        "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
+        "config": config, "rng_state": capture_rng_state(),
     }
 
 
-def snapshot_checkpoint(model, optimizer, epoch, best_accuracy, *, config=None):
+def snapshot_checkpoint(model, optimizer, scheduler, epoch, best_accuracy, *, config: dict):
     """Capture independent CPU storage before the next optimizer update."""
-    return _cpu_copy(_checkpoint_payload(model, optimizer, epoch, best_accuracy, config))
+    return _cpu_copy(_checkpoint_payload(
+        model, optimizer, scheduler, epoch, best_accuracy, config,
+    ))
 
 
 @dataclass(frozen=True)
@@ -77,44 +80,75 @@ def save_checkpoint(
     path: Path,
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     epoch: int,
     best_accuracy: float,
     *,
-    config: dict | None = None,
+    config: dict,
 ) -> None:
-    payload = _checkpoint_payload(model, optimizer, epoch, best_accuracy, config)
+    payload = _checkpoint_payload(model, optimizer, scheduler, epoch, best_accuracy, config)
     with atomic_path(path) as temporary:
         torch.save(payload, temporary)
 
 
-def load_checkpoint(
-    path: Path,
+def read_checkpoint(path: Path) -> dict:
+    """Read and validate a current-format checkpoint without restoring objects."""
+    payload = torch.load(path, map_location="cpu", weights_only=True)
+    if not isinstance(payload, dict):
+        raise ValueError("Checkpoint payload must be a dictionary")
+    version = payload.get("format_version")
+    if version != FORMAT_VERSION:
+        raise ValueError(
+            f"Unsupported checkpoint format version: {version}; expected {FORMAT_VERSION}"
+        )
+    required = {
+        "epoch", "best_accuracy", "model_state_dict", "optimizer_state_dict",
+        "scheduler_state_dict", "config", "rng_state",
+    }
+    missing = required - payload.keys()
+    if missing:
+        raise ValueError(f"Checkpoint is missing field: {sorted(missing)[0]}")
+    config = payload.get("config")
+    config_fields = {"model", "optimizer", "scheduler", "seed"}
+    if not isinstance(config, dict):
+        raise ValueError("Checkpoint has no complete training config")
+    if missing_config := config_fields - config.keys():
+        raise ValueError(f"Checkpoint config is missing field: {sorted(missing_config)[0]}")
+    scheduler_state = payload["scheduler_state_dict"]
+    if (config["scheduler"] is None) != (scheduler_state is None):
+        raise ValueError("Checkpoint scheduler config and state are inconsistent")
+    return payload
+
+
+def validate_checkpoint_config(payload: dict, expected_config: dict) -> None:
+    """Reject resume settings that would change the continuation semantics."""
+    saved_config = payload["config"]
+    for key, expected in expected_config.items():
+        if key not in saved_config:
+            raise ValueError(f"Checkpoint config has no value for {key}")
+        if saved_config[key] != expected:
+            raise ValueError(
+                f"Resume config mismatch for {key}: "
+                f"saved={saved_config[key]!r}, requested={expected!r}"
+            )
+
+
+def restore_checkpoint(
+    payload: dict,
     model: nn.Module,
     optimizer: torch.optim.Optimizer | None,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     device: torch.device,
     *,
     restore_rng: bool = False,
-    expected_config: dict | None = None,
 ) -> CheckpointState:
-    # Keep RNG byte tensors on CPU. Module/optimizer loading moves their own state
-    # to the device of the already constructed model, including Adam's step state.
-    payload = torch.load(path, map_location="cpu", weights_only=True)
-    version = payload.get("format_version", 1)
-    if version not in (1, FORMAT_VERSION):
-        raise ValueError(f"Unsupported checkpoint format version: {version}")
-    config = payload.get("config", {})
-    for key, expected in (expected_config or {}).items():
-        if key in config and config[key] != expected:
-            raise ValueError(f"Resume config mismatch for {key}: saved={config[key]!r}, requested={expected!r}")
+    config = payload["config"]
     model.to(device)
     model.load_state_dict(payload["model_state_dict"])
     if optimizer is not None:
         optimizer.load_state_dict(payload["optimizer_state_dict"])
+    if scheduler is not None:
+        scheduler.load_state_dict(payload["scheduler_state_dict"])
     if restore_rng:
-        if "rng_state" in payload:
-            restore_rng_state(payload["rng_state"])
-        else:
-            warnings.warn("Legacy checkpoint has no random state; exact continuation is unavailable.", stacklevel=2)
-        if not config:
-            warnings.warn("Checkpoint has no training config; resume compatibility cannot be checked.", stacklevel=2)
+        restore_rng_state(payload["rng_state"])
     return CheckpointState(int(payload["epoch"]), float(payload["best_accuracy"]), config)

@@ -27,15 +27,15 @@ python -m pip check
 本地训练使用同步文件保存：
 
 ```bash
-python train.py --epochs 1 --data-dir data --output-dir outputs/first --device cpu
-python train.py --epochs 2 --data-dir data --output-dir outputs/resumed \
+python train.py --config configs/smoke.json --data-dir data --output-dir outputs/first --device cpu
+python train.py --config configs/resume-smoke.json --data-dir data --output-dir outputs/resumed \
   --device cpu --no-download --resume outputs/first/last.pt
 python evaluate.py outputs/resumed/last.pt --data-dir data --device cpu --no-download
 ```
 
 `last.pt`、刷新后的 `best.pt` 在本地盘原子替换；`metrics.jsonl` 在本地追加。此模式的输出目录不要设为 OSS 挂载。云端通过 `cloud.launch` 使用下面的异步挂载协议。
 
-`--epochs` 是目标总轮数，恢复从已完成轮次 + 1 开始。checkpoint 包含模型、Adam、最佳准确率、Python/NumPy/Torch CPU/CUDA RNG；恢复保留优化器学习率，检查模型、数据版本、batch size、worker 数和 seed。旧 checkpoint 缺失 RNG/配置会警告；跨设备或框架版本不保证逐位一致。只支持 epoch 边界恢复。
+`--epochs` 是目标总轮数，恢复从已完成轮次 + 1 开始。模型、优化器和 epoch scheduler 由 JSON 中的 Python target 与参数构造；checkpoint 包含三者状态、最佳准确率及 Python/NumPy/Torch CPU/CUDA RNG。恢复检查组件配置、数据版本、batch size 和 worker 数，并沿用原始 seed 与随机状态。格式 3 不读取旧 checkpoint；跨设备或框架版本不保证逐位一致。
 
 ## 2. 准备与放置资源
 
