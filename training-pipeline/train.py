@@ -26,6 +26,7 @@ from training_config import load_training_config
 class Publisher(Protocol):
     def publish_config(self, config: dict) -> None: ...
     def publish_epoch(self, snapshot: Callable[[], dict], metrics: dict, is_best: bool) -> None: ...
+    def publish_metrics(self, metrics: dict) -> None: ...
     def check(self) -> None: ...
 
 
@@ -34,15 +35,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--config", type=Path, required=True,
                         help="Training JSON; explicit CLI options take precedence")
     parser.add_argument("--epochs", type=int, default=20, help="Target total epochs, including epochs before resume")
-    parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--data-version", default="cifar10", help="Dataset identity checked on resume")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
-    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--download", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--resume", type=Path, help="Local checkpoint path")
+    # Training-recipe defaults may only be overridden by the JSON config.
+    parser.set_defaults(batch_size=128, checkpoint_interval=1, seed=42)
     known, _ = parser.parse_known_args(argv)
     try:
         parser.set_defaults(**load_training_config(known.config))
@@ -53,8 +54,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         value = getattr(args, field)
         if isinstance(value, str):
             setattr(args, field, Path(value))
-    if args.epochs <= 0 or args.batch_size <= 0:
-        parser.error("epochs and batch-size must be positive")
+    if args.epochs <= 0 or args.batch_size <= 0 or args.checkpoint_interval <= 0:
+        parser.error("epochs, batch-size and checkpoint-interval must be positive")
     if args.num_workers < 0 or not 0 <= args.seed < 2**32:
         parser.error("num-workers must be nonnegative and seed must be in [0, 2**32)")
     if args.device not in ("auto", "cpu", "cuda"):
@@ -112,7 +113,8 @@ def run_training(args: argparse.Namespace, publisher: Publisher | None = None, m
         output.mkdir(parents=True, exist_ok=True)
     config = {
         **compatibility,
-        "epochs": args.epochs, "seed": effective_seed,
+        "epochs": args.epochs, "checkpoint_interval": args.checkpoint_interval,
+        "seed": effective_seed,
         "device": str(device), "download": args.download,
         "data_dir": str(args.data_dir), "output_dir": str(output),
         "resume": str(args.resume) if args.resume else None,
@@ -135,25 +137,31 @@ def run_training(args: argparse.Namespace, publisher: Publisher | None = None, m
             "epoch": epoch, "learning_rates": learning_rates,
             "train": asdict(train_metrics), "test": asdict(test_metrics),
         }
-        is_best = test_metrics.accuracy > best_accuracy
-        best_accuracy = max(best_accuracy, test_metrics.accuracy)
+        should_checkpoint = epoch % args.checkpoint_interval == 0 or epoch == args.epochs
+        is_best = should_checkpoint and test_metrics.accuracy > best_accuracy
+        if should_checkpoint:
+            best_accuracy = max(best_accuracy, test_metrics.accuracy)
         if scheduler is not None:
             scheduler.step()
         if publisher:
-            publisher.publish_epoch(
-                lambda: snapshot_checkpoint(
-                    model, optimizer, scheduler, epoch, best_accuracy, config=config,
-                ),
-                metrics, is_best,
-            )
+            if should_checkpoint:
+                publisher.publish_epoch(
+                    lambda: snapshot_checkpoint(
+                        model, optimizer, scheduler, epoch, best_accuracy, config=config,
+                    ),
+                    metrics, is_best,
+                )
+            else:
+                publisher.publish_metrics(metrics)
         else:
-            save_checkpoint(
-                output / "last.pt", model, optimizer, scheduler,
-                epoch, best_accuracy, config=config,
-            )
-            if is_best:
-                with atomic_path(output / "best.pt") as temporary:
-                    shutil.copyfile(output / "last.pt", temporary)
+            if should_checkpoint:
+                save_checkpoint(
+                    output / "last.pt", model, optimizer, scheduler,
+                    epoch, best_accuracy, config=config,
+                )
+                if is_best:
+                    with atomic_path(output / "best.pt") as temporary:
+                        shutil.copyfile(output / "last.pt", temporary)
             with (output / "metrics.jsonl").open("a") as stream:
                 stream.write(json.dumps(metrics, allow_nan=False) + "\n")
         print(json.dumps(metrics, allow_nan=False), flush=True)

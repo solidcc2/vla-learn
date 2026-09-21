@@ -161,6 +161,10 @@ class AsyncRunWriter:
     def publish_config(self, config: dict):
         self.publish_json("config.json", config)
 
+    def publish_metrics(self, metrics: dict):
+        epoch = metrics["epoch"]
+        self.publish_json(f"metrics/{epoch:04d}.json", metrics)
+
     def publish_epoch(self, snapshot: Callable[[], dict], metrics: dict, is_best: bool):
         self._space()
         # Runs on the training thread; completed CPU copies own all their storage.

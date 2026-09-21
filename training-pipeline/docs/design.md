@@ -12,7 +12,7 @@
 2. 代码与数据只读挂载，runs 读写挂载。Bash 复制并校验代码目录后直接执行 cloud.launch。
 3. 代码在一次性临时目录运行，结束后清理；数据按 SHA256 在 work-dir 缓存，复用前校验归档与解压树，拒绝路径穿越、链接、修改后的缓存和空间不足。
 4. 每次启动创建独立 run-id；记录配置、框架/GPU 信息、代码/数据摘要和恢复来源。
-5. 每轮取独立 CPU 快照交给有界保存器，后台直接在 runs 挂载创建 checkpoint、指标，最后创建 complete.json。
+5. 每轮保存指标；到达 `checkpoint_interval` 或最终轮次时取独立 CPU 快照交给有界保存器，后台直接在 runs 挂载创建 checkpoint、指标，最后创建 complete.json。
 6. 恢复选最新完整轮次或其最佳 checkpoint，校验路径和摘要后复制到本地加载；继承旧 run 的最佳引用。
 
 ## 持久化契约

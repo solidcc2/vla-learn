@@ -151,8 +151,10 @@ Bash 复制源码到本地临时目录，校验文件清单后启动 `python -m 
 <run-id>/
   started.json
   config.json
+  metrics/
+    0001.json          # 非 checkpoint 轮次的指标
   epochs/
-    0001/
+    0020/
       checkpoint.pt
       metrics.json
       complete.json
@@ -161,7 +163,7 @@ Bash 复制源码到本地临时目录，校验文件清单后启动 `python -m 
   train.log           # 入口退出时归档，失败不改变训练退出码
 ```
 
-每轮结束，训练线程先取得独立 CPU 快照，复制模型、优化器、配置和 RNG。复制完成后才开始下一轮，确保训练不会修改后台正保存的数据。后台负责序列化 checkpoint、写指标、关闭文件、校验摘要，最后写 complete.json。每个文件只创建一次，不在 OSS 上追加、覆盖或 rename。
+配置中的 `checkpoint_interval` 控制 checkpoint 间隔，最终轮次无论是否落在间隔上都会保存；默认值为 1。非 checkpoint 轮次只把指标写入 `metrics/`。checkpoint 轮次的训练线程先取得独立 CPU 快照，复制模型、优化器、配置和 RNG。复制完成后才开始下一轮，确保训练不会修改后台正保存的数据。后台负责序列化 checkpoint、写指标、关闭文件、校验摘要，最后写 complete.json。每个文件只创建一次，不在 OSS 上追加、覆盖或 rename。
 
 训练层通过 publish_config、publish_epoch 和 check 使用保存器，启动器管理其关闭和等待。训练线程同步取得 CPU 快照，单个后台 I/O 线程执行序列化和文件写入，与下一轮训练重叠。
 

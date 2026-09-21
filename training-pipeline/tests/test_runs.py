@@ -29,6 +29,15 @@ def test_completed_epochs_resume_and_keep_parent_best(tmp_path):
     assert torch.load(tmp_path / "resume.pt", weights_only=True)["epoch"] == 2
 
 
+def test_publish_metrics_without_checkpoint(tmp_path):
+    metrics = {"epoch": 1, "learning_rates": [0.1]}
+    with AsyncRunWriter(tmp_path, "run") as writer:
+        writer.publish_metrics(metrics)
+    path = tmp_path / "run/metrics/0001.json"
+    assert json.loads(path.read_text()) == metrics
+    assert not (tmp_path / "run/epochs/0001").exists()
+
+
 def test_async_write_overlaps_compute_and_bounds_snapshot_memory(tmp_path, monkeypatch):
     started, release, captured, submitted = Event(), Event(), Event(), Event()
     original = AsyncRunWriter._save_epoch

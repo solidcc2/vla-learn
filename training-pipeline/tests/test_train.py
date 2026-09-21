@@ -31,9 +31,9 @@ def small_training(monkeypatch):
     monkeypatch.setattr(train, "create_model", lambda spec: nn.Linear(3, 2))
 
 
-def train_args(output, epochs, *extra):
+def train_args(output, epochs, *extra, config_overrides=None):
     config = output.parent / f"{output.name}.json"
-    config.write_text(json.dumps({
+    values = {
         "epochs": epochs,
         "batch_size": 4,
         "device": "cpu",
@@ -51,7 +51,9 @@ def train_args(output, epochs, *extra):
             "target": "torch.optim.lr_scheduler:CosineAnnealingLR",
             "params": {"T_max": 2, "eta_min": 0.0001},
         },
-    }))
+    }
+    values.update(config_overrides or {})
+    config.write_text(json.dumps(values))
     return train.parse_args([
         "--config", str(config), "--output-dir", str(output), *extra,
     ])
@@ -81,7 +83,6 @@ def test_resume_matches_continuous_training_with_scheduler_and_rng(tmp_path, sma
     train.run_training(train_args(tmp_path / "first", 1))
     train.run_training(train_args(
         tmp_path / "resumed", 2, "--resume", str(tmp_path / "first/last.pt"),
-        "--seed", "99",
     ))
     full = torch.load(tmp_path / "full/last.pt", weights_only=True)
     resumed = torch.load(tmp_path / "resumed/last.pt", weights_only=True)
@@ -96,12 +97,43 @@ def test_resume_matches_continuous_training_with_scheduler_and_rng(tmp_path, sma
     assert json.loads((tmp_path / "resumed/config.json").read_text())["seed"] == 42
 
 
+def test_checkpoint_interval_keeps_all_metrics_and_final_checkpoint(tmp_path, small_training):
+    class RecordingPublisher:
+        def __init__(self):
+            self.config = None
+            self.checkpoints = []
+            self.metrics_only = []
+
+        def publish_config(self, config):
+            self.config = config
+
+        def publish_epoch(self, snapshot, metrics, is_best):
+            payload = snapshot()
+            assert payload["epoch"] == metrics["epoch"]
+            self.checkpoints.append(metrics["epoch"])
+
+        def publish_metrics(self, metrics):
+            self.metrics_only.append(metrics["epoch"])
+
+        def check(self):
+            pass
+
+    publisher = RecordingPublisher()
+    train.run_training(
+        train_args(tmp_path / "interval", 5, config_overrides={"checkpoint_interval": 2}),
+        publisher=publisher,
+    )
+    assert publisher.config["checkpoint_interval"] == 2
+    assert publisher.checkpoints == [2, 4, 5]
+    assert publisher.metrics_only == [1, 3]
+
+
 def test_resume_rejects_conflicting_batch_size(tmp_path, small_training):
     train.run_training(train_args(tmp_path / "first", 1))
     with pytest.raises(ValueError, match="batch_size"):
         train.run_training(train_args(
             tmp_path / "second", 2, "--resume", str(tmp_path / "first/last.pt"),
-            "--batch-size", "2",
+            config_overrides={"batch_size": 2},
         ))
 
 
@@ -153,7 +185,18 @@ def test_config_cli_overrides_and_unknown_keys(tmp_path):
         train.parse_args(["--config", str(config)])
 
 
-@pytest.mark.parametrize("config", [{"num_workers": -1}, {"epochs": "3"}, {"download": "false"}])
+@pytest.mark.parametrize("option", ["--batch-size", "--checkpoint-interval", "--seed"])
+def test_training_recipe_cli_overrides_are_rejected(tmp_path, option):
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps(base_config()))
+    with pytest.raises(SystemExit):
+        train.parse_args(["--config", str(config), option, "2"])
+
+
+@pytest.mark.parametrize(
+    "config",
+    [{"num_workers": -1}, {"checkpoint_interval": 0}, {"epochs": "3"}, {"download": "false"}],
+)
 def test_config_rejects_invalid_types_and_values(tmp_path, config):
     path = tmp_path / "config.json"
     path.write_text(json.dumps(base_config(**config)))

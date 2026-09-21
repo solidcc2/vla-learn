@@ -1,5 +1,6 @@
 {
   "epochs": 1,
+  "checkpoint_interval": 1,
   "batch_size": 128,
   "num_workers": 2,
   "device": "cuda",

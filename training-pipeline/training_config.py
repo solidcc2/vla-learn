@@ -9,6 +9,7 @@ from typing import Any
 _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "epochs": int,
     "batch_size": int,
+    "checkpoint_interval": int,
     "data_dir": str,
     "data_version": str,
     "output_dir": str,
