@@ -1,6 +1,6 @@
 ## 20260922
-1. 训练配置支持动态指定模型、optimizer 和 scheduler，并完善 checkpoint 续训与评估流程。
-2. 整理并导出 ResNet-18；补充相关测试，本地 CPU 定向测试 34 项通过，尚未进行实际训练。
+1. 训练配置支持动态指定模型、optimizer 和 scheduler，并完善 checkpoint 续训、间隔保存与评估流程。
+2. 完成 CIFAR-style ResNet-18 权重初始化及 A10 单卡 200 轮基线训练；最终测试准确率 95.38%，训练期间最高为 95.45%，checkpoint 完整性校验通过。详见[验证记录](../training-pipeline/docs/validation.md)。
 
 ## 20260919
 1. 归纳优化器相关的笔记

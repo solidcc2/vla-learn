@@ -2,6 +2,16 @@
 
 按执行时间倒序记录；同一天内按已知执行顺序排列。历史记录未保留具体执行时间的，仅标日期。使用方法见 [README](../README.md)，职责和持久化契约见 [设计说明](design.md)。
 
+## 2026-09-22 — CIFAR-10 ResNet-18 基线实验
+
+本实验用于建立 CIFAR-10 图像分类的 ResNet-18 基线，同时验证动态模型、优化器和调度器配置，以及 DLC checkpoint 持久化链路。模型采用适配 32×32 图像的 CIFAR-style ResNet-18：3×3 stem、无 maxpool、`[2,2,2,2]` 残差结构，共 11.17M 参数。卷积使用 Kaiming `fan_out` 初始化，并将残差分支末端 BatchNorm 权重初始化为零。
+
+数据集为 CIFAR-10，训练阶段使用随机裁剪、水平翻转和标准化。训练 200 epochs，batch size 128，seed 42；优化器为 SGD（lr 0.1、momentum 0.9、weight decay 5e-4、Nesterov），调度器为 CosineAnnealingLR（`T_max=200`、`eta_min=1e-5`），每 20 轮保存一次 checkpoint。训练环境为单卡 NVIDIA A10。
+
+任务成功完成。Epoch 200 训练准确率为 **99.996%**，测试准确率为 **95.38%**、loss 为 **0.1775**；训练期间最高测试准确率为 Epoch 199 的 **95.45%**。完整 200 轮指标连续，任务没有发生重启或失败，最终 checkpoint 已通过完整性校验。训练耗时约 47 分 40 秒，按目录价估算约 ¥8.33。
+
+追踪信息：JobId `dlc2cwf7ufugmkvi`；run ID `cifar10-resnet18-20260921T220930Z-5d124b52f5a7`；代码版本 `bde5239`。
+
 ## 2026-09-09 — Soft Medoid 池化实验
 
 本实验源于对 MaxPool 的一个思考：MaxPool 只保留局部最大响应，不一定能代表整个感受野的主要特征。我们希望改为聚合局部特征分布中更具代表性的内容。调研发现，Geisler 等人在 NeurIPS 2020 的 [Reliable Graph Neural Networks via Robust Aggregation](https://papers.nips.cc/paper/2020/hash/99e314b1b43706773153e7ef375fc68c-Abstract.html) 中提出了相近的 Soft Medoid 方法，并给出了可微实现。我们参考该方法，将其从 GNN 邻域聚合适配为 CNN 的局部 `2×2` 池化：计算窗口内特征向量之间的距离，通过 softmax 提高中心特征的权重，再进行加权聚合。
