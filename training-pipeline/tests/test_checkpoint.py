@@ -3,15 +3,14 @@ import torch
 from torch import nn
 
 from checkpoint import (
-    read_checkpoint, restore_checkpoint, save_checkpoint, snapshot_checkpoint,
+    CheckpointPayload, read_checkpoint, restore_checkpoint, save_checkpoint,
+    snapshot_checkpoint,
 )
+from engine import BestMetric
 
 
 def best_metric(value=0.75, epoch=3):
-    return {
-        "name": "validation.accuracy", "mode": "max",
-        "value": value, "epoch": epoch,
-    }
+    return BestMetric(value=value, epoch=epoch)
 
 
 def checkpoint_config(scheduler=None):
@@ -44,11 +43,15 @@ def test_checkpoint_restores_model_optimizer_and_scheduler(tmp_path) -> None:
         model.weight.zero_()
     optimizer.param_groups[0]["lr"] = 0.9
     restored_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+    payload = read_checkpoint(path)
+    assert isinstance(payload, CheckpointPayload)
+    assert isinstance(torch.load(path, weights_only=True), dict)
     state = restore_checkpoint(
-        read_checkpoint(path), model, optimizer, restored_scheduler, torch.device("cpu"),
+        payload, model, optimizer, restored_scheduler, torch.device("cpu"),
     )
     assert state.epoch == 3
     assert state.best_metric == best_metric()
+    assert state.config["model"]["target"] == "torch.nn:Linear"
     assert torch.equal(model.weight, expected_weight)
     assert optimizer.param_groups[0]["lr"] == 0.05
     assert restored_scheduler.state_dict() == scheduler.state_dict()

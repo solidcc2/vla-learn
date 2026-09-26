@@ -41,21 +41,29 @@ def test_training_reads_explicit_model_target(tmp_path) -> None:
                "params": {"num_classes": 3}},
     )))
     args = train.parse_args(["--config", str(config)])
-    assert args.model["target"].endswith(":SimpleCNNWithSoftMedoid")
-    assert args.model["params"] == {"num_classes": 3}
+    assert isinstance(args, dict)
+    assert args["model"] == {
+        "target": "models.simple_cnn_soft_medoid:SimpleCNNWithSoftMedoid",
+        "params": {"num_classes": 3},
+    }
 
 
 def test_evaluation_uses_model_and_test_data_recorded_in_checkpoint(tmp_path, monkeypatch) -> None:
     checkpoint = tmp_path / "checkpoint.pt"
-    model_spec = {"target": "torch.nn:Linear", "params": {"in_features": 3, "out_features": 2}}
-    data_spec = {"target": "tests.fake:DataModule", "params": {}}
-    payload = {"config": {"data": data_spec, "model": model_spec}}
+    checkpoint_config = {
+        "model": {
+            "target": "torch.nn:Linear",
+            "params": {"in_features": 3, "out_features": 2},
+        },
+        "data": {"target": "tests.fake:DataModule", "params": {}},
+    }
+    payload = SimpleNamespace(config=checkpoint_config)
     model = nn.Linear(3, 2)
     seen = {}
     monkeypatch.setattr(evaluate, "read_checkpoint", lambda path: payload)
 
-    def build_model(spec):
-        seen["spec"] = spec
+    def build_model(config):
+        seen["model_config"] = config
         return model
 
     monkeypatch.setattr(evaluate, "create_model", build_model)
@@ -64,8 +72,8 @@ def test_evaluation_uses_model_and_test_data_recorded_in_checkpoint(tmp_path, mo
             seen["test_loader"] = True
             return [(torch.zeros(1, 3), torch.zeros(1, dtype=torch.long))]
 
-    def build_data_module(spec):
-        seen["data_spec"] = spec
+    def build_data_module(config):
+        seen["data_config"] = config
         return TestDataModule()
 
     monkeypatch.setattr(evaluate, "create_data_module", build_data_module)
@@ -78,7 +86,7 @@ def test_evaluation_uses_model_and_test_data_recorded_in_checkpoint(tmp_path, mo
         lambda *args, **kwargs: SimpleNamespace(loss=1.0, accuracy=0.5, samples=1),
     )
     state, metrics = evaluate.run_evaluation(evaluate.parse_args([str(checkpoint), "--device", "cpu"]))
-    assert seen["spec"] == model_spec
-    assert seen["data_spec"] == data_spec
+    assert seen["model_config"] is checkpoint_config
+    assert seen["data_config"] is checkpoint_config
     assert seen["test_loader"] is True
     assert state.epoch == 4 and metrics.samples == 1

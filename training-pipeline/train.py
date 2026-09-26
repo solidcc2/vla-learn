@@ -1,12 +1,11 @@
 """Configured image-classification training with epoch-boundary resume."""
 
 import argparse
-from dataclasses import asdict
 import json
 from pathlib import Path
 import random
 import shutil
-from typing import Protocol, Callable
+from typing import Callable, Protocol
 
 import numpy as np
 import torch
@@ -17,7 +16,7 @@ from checkpoint import (
     validate_checkpoint_config,
 )
 from components import create_data_module, create_model, create_optimizer, create_scheduler
-from engine import evaluate, train_one_epoch
+from engine import BestMetric, EpochMetrics, evaluate, train_one_epoch
 from persistence.files import atomic_path, write_json
 from training_config import load_training_config
 
@@ -29,7 +28,7 @@ class Publisher(Protocol):
     def check(self) -> None: ...
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> dict:
     parser = argparse.ArgumentParser(description="Train a configured image classifier")
     parser.add_argument("--config", type=Path, required=True,
                         help="Training JSON; explicit CLI options take precedence")
@@ -61,7 +60,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("device must be auto, cpu or cuda")
     if not args.data_version:
         parser.error("data-version must not be empty")
-    return args
+    config = vars(args).copy()
+    del config["config"]
+    return config
 
 
 def choose_device(requested: str) -> torch.device:
@@ -72,104 +73,113 @@ def choose_device(requested: str) -> torch.device:
     return torch.device(requested)
 
 
-def run_training(args: argparse.Namespace, publisher: Publisher | None = None, metadata: dict | None = None) -> dict:
-    resume_payload = read_checkpoint(args.resume) if args.resume else None
-    compatibility = {
-        "data": args.data, "model": args.model, "optimizer": args.optimizer, "scheduler": args.scheduler,
-        "data_version": args.data_version, "batch_size": args.batch_size,
-        "num_workers": args.num_workers,
-    }
+def run_training(
+    config: dict,
+    publisher: Publisher | None = None,
+    metadata: dict | None = None,
+) -> EpochMetrics:
+    resume_payload = read_checkpoint(config["resume"]) if config["resume"] else None
     if resume_payload is not None:
-        validate_checkpoint_config(resume_payload, compatibility)
-    effective_seed = resume_payload["config"]["seed"] if resume_payload is not None else args.seed
+        validate_checkpoint_config(resume_payload, config)
+    effective_seed = (
+        resume_payload.config["seed"] if resume_payload is not None else config["seed"]
+    )
     random.seed(effective_seed)
     np.random.seed(effective_seed)
     torch.manual_seed(effective_seed)
-    device = choose_device(args.device)
-    data_module = create_data_module(args.data)
+    device = choose_device(config["device"])
+    data_module = create_data_module(config)
     train_loader, validation_loader = data_module.create_train_loaders(
-        args.data_dir, args.batch_size, args.num_workers, download=args.download,
+        config["data_dir"],
+        config["batch_size"],
+        config["num_workers"],
+        download=config["download"],
     )
-    model = create_model(args.model).to(device)
+    model = create_model(config).to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = create_optimizer(args.optimizer, model.parameters())
-    scheduler = create_scheduler(args.scheduler, optimizer)
-    best_metric = {
-        "name": "validation.accuracy", "mode": "max", "value": -1.0, "epoch": 0,
-    }
+    optimizer = create_optimizer(config, model.parameters())
+    scheduler = create_scheduler(config, optimizer)
+    best_metric = BestMetric()
     start_epoch = 1
     if resume_payload is not None:
         state = restore_checkpoint(
             resume_payload, model, optimizer, scheduler, device, restore_rng=True,
         )
         start_epoch, best_metric = state.epoch + 1, state.best_metric
-        if start_epoch > args.epochs:
+        if start_epoch > config["epochs"]:
             raise ValueError(f"--epochs must exceed the completed checkpoint epoch ({state.epoch})")
         learning_rates = [group["lr"] for group in optimizer.param_groups]
         print(f"Resuming at epoch={start_epoch}; learning_rates={learning_rates}", flush=True)
 
-    output = args.output_dir
+    output = config["output_dir"]
     if publisher is None:
         if output.exists() and any(output.iterdir()):
             raise FileExistsError(f"Output directory must be empty; use a new run directory: {output}")
         output.mkdir(parents=True, exist_ok=True)
-    config = {
-        **compatibility,
-        "epochs": args.epochs, "checkpoint_interval": args.checkpoint_interval,
+
+    checkpoint_config = {
+        **config,
         "seed": effective_seed,
-        "device": str(device), "download": args.download,
-        "data_dir": str(args.data_dir), "output_dir": str(output),
-        "resume": str(args.resume) if args.resume else None,
+        "device": str(device),
+        "data_dir": str(config["data_dir"]),
+        "output_dir": str(output),
+        "resume": str(config["resume"]) if config["resume"] else None,
         "torch_version": str(torch.__version__),
         "metadata": metadata if metadata is not None else {},
         "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
     }
     if publisher:
-        publisher.publish_config(config)
+        publisher.publish_config(checkpoint_config)
     else:
-        write_json(output / "config.json", config)
+        write_json(output / "config.json", checkpoint_config)
 
-    for epoch in range(start_epoch, args.epochs + 1):
+    for epoch in range(start_epoch, config["epochs"] + 1):
         if publisher:
             publisher.check()
-        learning_rates = [group["lr"] for group in optimizer.param_groups]
+        learning_rates = tuple(group["lr"] for group in optimizer.param_groups)
         train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device)
         validation_metrics = evaluate(model, validation_loader, criterion, device)
-        metrics = {
-            "epoch": epoch, "learning_rates": learning_rates,
-            "train": asdict(train_metrics), "validation": asdict(validation_metrics),
-        }
-        is_best = validation_metrics.accuracy > best_metric["value"]
+        metrics = EpochMetrics(
+            epoch=epoch,
+            learning_rates=learning_rates,
+            train=train_metrics,
+            validation=validation_metrics,
+        )
+        is_best = best_metric.improved_by(validation_metrics.accuracy)
         if is_best:
-            best_metric = {
-                "name": "validation.accuracy", "mode": "max",
-                "value": validation_metrics.accuracy, "epoch": epoch,
-            }
-        should_checkpoint = is_best or epoch % args.checkpoint_interval == 0 or epoch == args.epochs
+            best_metric = best_metric.updated(validation_metrics.accuracy, epoch)
+        should_checkpoint = (
+            is_best
+            or epoch % config["checkpoint_interval"] == 0
+            or epoch == config["epochs"]
+        )
         if scheduler is not None:
             scheduler.step()
+        metrics_record = metrics.to_dict()
         if publisher:
             if should_checkpoint:
                 publisher.publish_epoch(
                     lambda: snapshot_checkpoint(
-                        model, optimizer, scheduler, epoch, best_metric, config=config,
+                        model, optimizer, scheduler, epoch, best_metric,
+                        config=checkpoint_config,
                     ),
-                    metrics, is_best,
+                    metrics_record,
+                    is_best,
                 )
             else:
-                publisher.publish_metrics(metrics)
+                publisher.publish_metrics(metrics_record)
         else:
             if should_checkpoint:
                 save_checkpoint(
                     output / "last.pt", model, optimizer, scheduler,
-                    epoch, best_metric, config=config,
+                    epoch, best_metric, config=checkpoint_config,
                 )
                 if is_best:
                     with atomic_path(output / "best.pt") as temporary:
                         shutil.copyfile(output / "last.pt", temporary)
             with (output / "metrics.jsonl").open("a") as stream:
-                stream.write(json.dumps(metrics, allow_nan=False) + "\n")
-        print(json.dumps(metrics, allow_nan=False), flush=True)
+                stream.write(json.dumps(metrics_record, allow_nan=False) + "\n")
+        print(json.dumps(metrics_record, allow_nan=False), flush=True)
     return metrics
 
 

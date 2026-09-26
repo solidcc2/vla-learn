@@ -23,6 +23,13 @@ source <子项目目录>/venv/bin/activate
 source training-pipeline/venv/bin/activate
 ```
 
+## 编码约定
+
+### 配置访问
+
+- 配置在模块间必须传递完整根对象，不得将 `data`、`model`、`optimizer`、`scheduler` 等子字典作为公共函数参数。
+- 配置字段从根对象使用完整路径访问；纯配置结构保持字典，仅对具有独立行为或不变量的运行时状态建立 dataclass，避免同时存在字典、属性包装和通用 `value()` 等多套访问方式。
+
 ## 用户笔记保护
 
 - `docs/notes/` 下的文件由用户维护，默认只读；仅当用户明确要求查看或评审某篇笔记时，才允许读取其内容。

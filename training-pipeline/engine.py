@@ -15,6 +15,59 @@ class Metrics:
     accuracy: float
     samples: int
 
+    def to_dict(self) -> dict:
+        return {"loss": self.loss, "accuracy": self.accuracy, "samples": self.samples}
+
+
+@dataclass(frozen=True)
+class BestMetric:
+    name: str = "validation.accuracy"
+    mode: str = "max"
+    value: float = -1.0
+    epoch: int = 0
+
+    @classmethod
+    def from_dict(cls, value) -> "BestMetric":
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"name", "mode", "value", "epoch"}
+            or value["name"] != "validation.accuracy"
+            or value["mode"] != "max"
+            or type(value["value"]) not in (int, float)
+            or not isinstance(value["epoch"], int)
+            or value["epoch"] <= 0
+        ):
+            raise ValueError("Checkpoint has an invalid best_metric")
+        return cls(value=float(value["value"]), epoch=value["epoch"])
+
+    def improved_by(self, value: float) -> bool:
+        return value > self.value
+
+    def updated(self, value: float, epoch: int) -> "BestMetric":
+        return BestMetric(value=value, epoch=epoch)
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name, "mode": self.mode,
+            "value": self.value, "epoch": self.epoch,
+        }
+
+
+@dataclass(frozen=True)
+class EpochMetrics:
+    epoch: int
+    learning_rates: tuple[float, ...]
+    train: Metrics
+    validation: Metrics
+
+    def to_dict(self) -> dict:
+        return {
+            "epoch": self.epoch,
+            "learning_rates": list(self.learning_rates),
+            "train": self.train.to_dict(),
+            "validation": self.validation.to_dict(),
+        }
+
 
 def _run_epoch(
     model: nn.Module,

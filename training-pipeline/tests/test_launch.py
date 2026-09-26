@@ -118,8 +118,11 @@ def test_bash_runs_copied_code_and_rejects_incomplete_release(tmp_path, damage):
     from cloud.prepare import prepare_code
     project = tmp_path / "project"
     (project / "cloud").mkdir(parents=True)
-    for name in ("train.py", "evaluate.py", "data.py", "engine.py", "checkpoint.py", "components.py", "training_config.py"):
+    for name in ("train.py", "evaluate.py", "engine.py", "checkpoint.py", "components.py", "training_config.py"):
         (project / name).write_text("pass")
+    (project / "data_modules").mkdir()
+    (project / "data_modules/__init__.py").write_text("")
+    (project / "data_modules/base.py").write_text("pass")
     (project / "cloud/__init__.py").write_text("")
     (project / "cloud/launch.py").write_text(
         'import os, sys\nfrom pathlib import Path\n'

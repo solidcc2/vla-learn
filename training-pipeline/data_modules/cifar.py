@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 
-from data import DataModule
+from .base import DataModule
 
 
 _DATASETS = {

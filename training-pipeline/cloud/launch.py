@@ -37,7 +37,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def run_job(args: argparse.Namespace) -> dict:
     training_args = train.parse_args(["--config", str(args.config), "--no-download"])
-    if training_args.resume:
+    if training_args["resume"]:
         raise ValueError("Use --resume-run for cloud resume; remove resume from the training JSON")
     run_id = f"{args.run_label}-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:12]}"
     run_dir = run_path(args.work_dir / "runs", run_id)
@@ -51,14 +51,21 @@ def run_job(args: argparse.Namespace) -> dict:
     code_manifest = json.loads(args.code_manifest.read_text()) if args.code_manifest else {}
     best = None
     resume_checkpoint = None
+    resume_path = None
     if args.resume_run:
-        training_args.resume = run_dir / "resume.pt"
-        index = restore_run(args.runs_dir, args.resume_run, training_args.resume, best=args.resume_best)
+        resume_path = run_dir / "resume.pt"
+        index = restore_run(
+            args.runs_dir, args.resume_run, resume_path, best=args.resume_best,
+        )
         best = index.get("best")
         resume_checkpoint = index["checkpoint"]
-    training_args.data_dir = data_dir
-    training_args.data_version = data_manifest["sha256"]
-    training_args.output_dir = output_dir
+    training_args = {
+        **training_args,
+        "resume": resume_path,
+        "data_dir": data_dir,
+        "data_version": data_manifest["sha256"],
+        "output_dir": output_dir,
+    }
     # Construct startup metadata once, after input and resume references are known.
     metadata = {
         "run_id": run_id, "data_sha256": data_manifest["sha256"],

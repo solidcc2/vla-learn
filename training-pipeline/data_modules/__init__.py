@@ -1,5 +1,5 @@
-"""Built-in data modules."""
+"""Data-module interfaces."""
 
-from .cifar import CIFARDataModule
+from .base import DataModule
 
-__all__ = ["CIFARDataModule"]
+__all__ = ["DataModule"]

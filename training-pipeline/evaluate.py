@@ -25,11 +25,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def run_evaluation(args: argparse.Namespace):
     payload = read_checkpoint(args.checkpoint)
     device = choose_device(args.device)
-    data_module = create_data_module(payload["config"]["data"])
+    data_module = create_data_module(payload.config)
     test_loader = data_module.create_test_loader(
         args.data_dir, args.batch_size, args.num_workers, download=args.download
     )
-    model = create_model(payload["config"]["model"]).to(device)
+    model = create_model(payload.config).to(device)
     state = restore_checkpoint(
         payload, model, optimizer=None, scheduler=None, device=device,
     )

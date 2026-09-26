@@ -8,7 +8,7 @@ from typing import Any
 import torch
 from torch import nn
 
-from data import DataModule
+from data_modules import DataModule
 
 
 def resolve_target(target: str) -> Any:
@@ -26,62 +26,65 @@ def resolve_target(target: str) -> Any:
         raise ValueError(f"Target {target!r} does not exist") from error
 
 
-def _construct(spec: dict, *args) -> Any:
-    target = spec["target"]
+def _construct(target: str, params: dict, *args) -> Any:
     constructor = resolve_target(target)
     if not isinstance(constructor, type):
         raise TypeError(f"Target {target!r} is not a class")
     try:
-        return constructor(*args, **spec["params"])
+        return constructor(*args, **params)
     except Exception as error:
         raise TypeError(f"Could not construct target {target!r}: {error}") from error
 
 
-def create_model(spec: dict) -> nn.Module:
-    model = _construct(spec)
+def create_model(config: dict) -> nn.Module:
+    target = config["model"]["target"]
+    model = _construct(target, config["model"]["params"])
     if not isinstance(model, nn.Module):
-        raise TypeError(f"Target {spec['target']!r} did not create an nn.Module")
+        raise TypeError(f"Target {target!r} did not create an nn.Module")
     return model
 
 
-def create_data_module(spec: dict) -> DataModule:
-    data_module = _construct(spec)
+def create_data_module(config: dict) -> DataModule:
+    target = config["data"]["target"]
+    data_module = _construct(target, config["data"]["params"])
     if not isinstance(data_module, DataModule):
         raise TypeError(
-            f"Target {spec['target']!r} did not create a DataModule"
+            f"Target {target!r} did not create a DataModule"
         )
     return data_module
 
 
 def create_optimizer(
-    spec: dict,
+    config: dict,
     parameters: Iterable[nn.Parameter],
 ) -> torch.optim.Optimizer:
-    optimizer_type = resolve_target(spec["target"])
+    target = config["optimizer"]["target"]
+    optimizer_type = resolve_target(target)
     if not isinstance(optimizer_type, type) or not issubclass(optimizer_type, torch.optim.Optimizer):
-        raise TypeError(f"Target {spec['target']!r} is not an Optimizer class")
+        raise TypeError(f"Target {target!r} is not an Optimizer class")
     try:
-        return optimizer_type(parameters, **spec["params"])
+        return optimizer_type(parameters, **config["optimizer"]["params"])
     except Exception as error:
-        raise TypeError(f"Could not construct target {spec['target']!r}: {error}") from error
+        raise TypeError(f"Could not construct target {target!r}: {error}") from error
 
 
 def create_scheduler(
-    spec: dict | None,
+    config: dict,
     optimizer: torch.optim.Optimizer,
 ) -> torch.optim.lr_scheduler.LRScheduler | None:
-    if spec is None:
+    if config["scheduler"] is None:
         return None
-    scheduler_type = resolve_target(spec["target"])
+    target = config["scheduler"]["target"]
+    scheduler_type = resolve_target(target)
     base_type = torch.optim.lr_scheduler.LRScheduler
     if not isinstance(scheduler_type, type) or not issubclass(scheduler_type, base_type):
-        raise TypeError(f"Target {spec['target']!r} is not an LRScheduler class")
+        raise TypeError(f"Target {target!r} is not an LRScheduler class")
     if scheduler_type is torch.optim.lr_scheduler.SequentialLR:
         raise TypeError("SequentialLR is not supported by the epoch scheduler configuration")
     try:
-        scheduler = scheduler_type(optimizer, **spec["params"])
+        scheduler = scheduler_type(optimizer, **config["scheduler"]["params"])
     except Exception as error:
-        raise TypeError(f"Could not construct target {spec['target']!r}: {error}") from error
+        raise TypeError(f"Could not construct target {target!r}: {error}") from error
     required = [
         parameter
         for parameter in inspect.signature(scheduler.step).parameters.values()
@@ -91,7 +94,7 @@ def create_scheduler(
     ]
     if required:
         raise TypeError(
-            f"Scheduler {spec['target']!r} requires arguments to step(); "
+            f"Scheduler {target!r} requires arguments to step(); "
             "only epoch schedulers with step() are supported"
         )
     return scheduler

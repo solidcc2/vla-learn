@@ -188,7 +188,7 @@ def test_resume_rejects_conflicting_training_recipe(
         tmp_path / "second", 2,
         "--resume", str(tmp_path / "first/last.pt"),
     )
-    setattr(args, field, replacement)
+    args = {**args, field: replacement}
     with pytest.raises(ValueError, match=field):
         train.run_training(args)
 
@@ -208,7 +208,9 @@ def test_config_cli_overrides_and_unknown_keys(tmp_path):
     config = tmp_path / "config.json"
     config.write_text(json.dumps(base_config(epochs=3, download=False, batch_size=8)))
     args = train.parse_args(["--config", str(config), "--epochs", "5"])
-    assert (args.epochs, args.batch_size, args.download) == (5, 8, False)
+    assert isinstance(args, dict)
+    assert (args["epochs"], args["batch_size"], args["download"]) == (5, 8, False)
+    assert "config" not in args
     config.write_text(json.dumps(base_config(epohcs=3)))
     with pytest.raises(SystemExit):
         train.parse_args(["--config", str(config)])

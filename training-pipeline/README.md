@@ -6,7 +6,7 @@ OSS 访问由 DLC 存储挂载负责。通过 PAI CLI 读取 `dlc/job.yaml` 创�
 
 设计与职责详见 [设计说明](docs/design.md)。
 
-源码按职责组织：`models/`、`data_modules/`、`engine.py`、`checkpoint.py` 分别负责模型、动态数据组件、训练循环与训练状态；`train.py` / `evaluate.py` 是入口。`persistence/files.py` 提供基础文件操作，`persistence/runs.py` 负责后台保存和 run 恢复；`cloud/` 只负责云端启动、源码发布和数据准备。数据目录 `data/` 存放实际数据文件，源码 `data.py` 定义 DataModule 接口。
+源码按职责组织：`models/`、`data_modules/`、`engine.py`、`checkpoint.py` 分别负责模型、动态数据组件、训练循环与训练状态；`train.py` / `evaluate.py` 是入口。`persistence/files.py` 提供基础文件操作，`persistence/runs.py` 负责后台保存和 run 恢复；`cloud/` 只负责云端启动、源码发布和数据准备。数据目录 `data/` 存放实际数据文件，`data_modules/base.py` 定义 DataModule 接口。
 
 职责边界：环境准备负责依赖与 GPU 验收；`cloud.launch` 负责衔接资源、恢复来源、输出目录及任务状态；`train` 负责训练参数与设备选择；`checkpoint` 负责训练状态兼容性；`persistence` 负责 run 路径、队列和文件完整性。启动器只保留自身参数语义约束，例如 `resume-best` 必须配合 `resume-run`，云端恢复不能混用训练 JSON 的本地 `resume`。
 
