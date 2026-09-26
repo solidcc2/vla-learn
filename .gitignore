@@ -34,3 +34,6 @@ training-pipeline/.dlc/
 .env
 .env.*
 !.env.example
+
+# Codex 临时会话记录
+/.tmp/transformer-discussion/

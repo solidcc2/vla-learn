@@ -1,4 +1,6 @@
-[] 补充对各类损失函数的理解。
+[x] 补充对各类损失函数的理解。
 [x] 补充对常用算子/网络笔记 - SimpleCNN算子.md
-[] 补充对各类optimizer + schedule的理解。
+[x] 补充对各类optimizer + schedule的理解。
 [] amp & checkpoint。
+[] ViT 阶段继续使用现有训练框架，新增 ViT 模型和配置，并将数据集改为动态配置，以支持 CIFAR-10/CIFAR-100；按需补充 AdamW、warmup 和 AMP。
+[] CLIP 阶段引入 task 抽象，将数据处理、模型调用、loss、指标和最佳模型判断从通用训练循环中分离。

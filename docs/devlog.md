@@ -1,3 +1,8 @@
+## 20260926
+1. 增加动态数据配置及训练集、验证集、测试集拆分。
+2. 统一训练配置访问方式，整理 DataModule 结构。
+3. 了解 ViT 训练过程，笔记待整理。
+
 ## 20260922
 1. 训练配置支持动态指定模型、optimizer 和 scheduler，并完善 checkpoint 续训、间隔保存与评估流程。
 2. 完成 CIFAR-style ResNet-18 权重初始化及 A10 单卡 200 轮基线训练；最终测试准确率 95.38%，训练期间最高为 95.45%，checkpoint 完整性校验通过。详见[验证记录](../training-pipeline/docs/validation.md)。
