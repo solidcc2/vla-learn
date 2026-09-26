@@ -8,6 +8,8 @@ from typing import Any
 import torch
 from torch import nn
 
+from data import DataModule
+
 
 def resolve_target(target: str) -> Any:
     """Resolve module.path:AttributeName to a Python object."""
@@ -40,6 +42,15 @@ def create_model(spec: dict) -> nn.Module:
     if not isinstance(model, nn.Module):
         raise TypeError(f"Target {spec['target']!r} did not create an nn.Module")
     return model
+
+
+def create_data_module(spec: dict) -> DataModule:
+    data_module = _construct(spec)
+    if not isinstance(data_module, DataModule):
+        raise TypeError(
+            f"Target {spec['target']!r} did not create a DataModule"
+        )
+    return data_module
 
 
 def create_optimizer(

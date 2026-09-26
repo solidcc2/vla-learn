@@ -24,13 +24,17 @@ def staged_data(tmp_path):
 def small_job(monkeypatch):
     import train
 
-    def loaders(data_dir, batch_size, num_workers, download=True):
-        assert download is False
-        assert (data_dir / "dataset.txt").read_text() == "tiny local fixture"
-        dataset = TensorDataset(torch.arange(24, dtype=torch.float32).reshape(8, 3) / 24,
-                                torch.tensor([0, 1] * 4))
-        return DataLoader(dataset, batch_size=batch_size, shuffle=True), DataLoader(dataset, batch_size=batch_size)
-    monkeypatch.setattr(train, "create_dataloaders", loaders)
+    class TestDataModule:
+        def create_train_loaders(self, data_dir, batch_size, num_workers, download=True):
+            assert download is False
+            assert (data_dir / "dataset.txt").read_text() == "tiny local fixture"
+            dataset = TensorDataset(
+                torch.arange(24, dtype=torch.float32).reshape(8, 3) / 24,
+                torch.tensor([0, 1] * 4),
+            )
+            return DataLoader(dataset, batch_size=batch_size, shuffle=True), DataLoader(dataset, batch_size=batch_size)
+
+    monkeypatch.setattr(train, "create_data_module", lambda spec: TestDataModule())
     monkeypatch.setattr(train, "create_model", lambda spec: nn.Linear(3, 2))
 
 
@@ -38,6 +42,10 @@ def job_args(tmp_path, resource, epochs=1, *extra):
     from cloud.launch import parse_args
     config = tmp_path / f"training-{epochs}.json"
     config.write_text(json.dumps({
+        "data": {
+            "target": "data_modules.cifar:CIFARDataModule",
+            "params": {"dataset": "cifar10", "validation_size": 10, "split_seed": 42},
+        },
         "device": "cpu", "epochs": epochs, "batch_size": 4,
         "model": {
             "target": "models.simple_cnn:SimpleCNN",
@@ -67,7 +75,7 @@ def test_full_job_then_resume_publishes_two_distinct_runs(tmp_path, staged_data,
     from test_train import assert_tree_equal
     full = run_job(job_args(tmp_path, staged_data, 2))
     continuous = torch.load(Path(full["output_dir"]) / "epochs/0002/checkpoint.pt", weights_only=True)
-    for key in ("model_state_dict", "optimizer_state_dict", "scheduler_state_dict", "rng_state", "best_accuracy"):
+    for key in ("model_state_dict", "optimizer_state_dict", "scheduler_state_dict", "rng_state", "best_metric"):
         assert_tree_equal(continuous[key], checkpoint[key])
     config = json.loads((Path(second["output_dir"]) / "config.json").read_text())
     assert config["metadata"]["torch_version"] == "2.8.0+cpu"
@@ -180,7 +188,7 @@ def test_real_cifar_loader_cnn_and_evaluation_work_offline(tmp_path, monkeypatch
     import numpy as np
     from torchvision.datasets import CIFAR10
     from checkpoint import read_checkpoint, restore_checkpoint
-    from data import create_dataloaders
+    from data_modules.cifar import CIFARDataModule
     from engine import evaluate
     from models import SimpleCNN
     from cloud.launch import run_job
@@ -194,9 +202,10 @@ def test_real_cifar_loader_cnn_and_evaluation_work_offline(tmp_path, monkeypatch
         (root / name).write_bytes(content)
         return hashlib.md5(content).hexdigest()
 
-    samples = np.random.default_rng(123).integers(0, 256, size=(4, 3072), dtype=np.uint8)
-    train_md5 = write_pickle("data_batch_1", {"data": samples, "labels": [0, 1, 2, 3]})
-    test_md5 = write_pickle("test_batch", {"data": samples, "labels": [0, 1, 2, 3]})
+    samples = np.random.default_rng(123).integers(0, 256, size=(20, 3072), dtype=np.uint8)
+    labels = list(range(10)) * 2
+    train_md5 = write_pickle("data_batch_1", {"data": samples, "labels": labels})
+    test_md5 = write_pickle("test_batch", {"data": samples, "labels": labels})
     meta_md5 = write_pickle("batches.meta", {"label_names": [str(index) for index in range(10)]})
     monkeypatch.setattr(CIFAR10, "train_list", [("data_batch_1", train_md5)])
     monkeypatch.setattr(CIFAR10, "test_list", [("test_batch", test_md5)])
@@ -208,10 +217,11 @@ def test_real_cifar_loader_cnn_and_evaluation_work_offline(tmp_path, monkeypatch
     model = SimpleCNN()
     payload = read_checkpoint(Path(second["output_dir"]) / "epochs/0002/checkpoint.pt")
     state = restore_checkpoint(payload, model, None, None, torch.device("cpu"))
-    _, test_loader = create_dataloaders(tmp_path / "data", 4, download=False)
+    data_module = CIFARDataModule(validation_size=10)
+    test_loader = data_module.create_test_loader(tmp_path / "data", 4, download=False)
     metrics = evaluate(model, test_loader, nn.CrossEntropyLoss(), torch.device("cpu"))
     assert state.epoch == 2
-    assert metrics.samples == 4 and 0 <= metrics.accuracy <= 1
+    assert metrics.samples == 20 and 0 <= metrics.accuracy <= 1
 
 
 def test_invalid_run_label_cannot_create_paths(tmp_path, staged_data):

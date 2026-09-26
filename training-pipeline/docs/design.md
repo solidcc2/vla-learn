@@ -12,7 +12,7 @@
 2. 代码与数据只读挂载，runs 读写挂载。Bash 复制并校验代码目录后直接执行 cloud.launch。
 3. 代码在一次性临时目录运行，结束后清理；数据按 SHA256 在 work-dir 缓存，复用前校验归档与解压树，拒绝路径穿越、链接、修改后的缓存和空间不足。
 4. 每次启动创建独立 run-id；记录配置、框架/GPU 信息、代码/数据摘要和恢复来源。
-5. 每轮保存指标；到达 `checkpoint_interval` 或最终轮次时取独立 CPU 快照交给有界保存器，后台直接在 runs 挂载创建 checkpoint、指标，最后创建 complete.json。
+5. 每轮训练后只评估验证集并保存指标；出现新的 validation best、到达 `checkpoint_interval` 或最终轮次时取独立 CPU 快照交给有界保存器，后台直接在 runs 挂载创建 checkpoint、指标，最后创建 complete.json。官方测试集仅通过独立评估入口使用。
 6. 恢复选最新完整轮次或其最佳 checkpoint，校验路径和摘要后复制到本地加载；继承旧 run 的最佳引用。
 
 ## 持久化契约
@@ -22,8 +22,8 @@
 - 后台队列包含在途写入，默认容量 1、可配置为正整数；反压发生在快照分配之前。CPU 快照同步复制，后台负责序列化和 I/O。
 - 挂载必须在 close 时等待上传完成并返回错误。应用 flush/fsync/close 后读回校验，complete.json 最后写；依赖 ossfs 2.0 sync_upload=true 的持久化契约。
 - 错误阻止后续队列发布；正常结束等待所有保存。未完成轮次不可恢复，已完成数据损坏直接报错。
-- `--epochs` 是目标总轮数；恢复核对模型、优化器、scheduler、数据版本、batch size 和 workers，并从 checkpoint 恢复原始随机状态。
-- 只承诺同一环境下测试覆盖的连续/恢复一致性；格式 3 不兼容旧 checkpoint，跨设备/版本不保证逐位一致。
+- `--epochs` 是目标总轮数；恢复核对数据组件、模型、优化器、scheduler、数据版本、batch size 和 workers，并从 checkpoint 恢复原始随机状态。CIFAR 的分层划分大小和 seed 属于数据组件配置，变化时拒绝续训。
+- 只承诺同一环境下测试覆盖的连续/恢复一致性；格式 4 不兼容旧 checkpoint，跨设备/版本不保证逐位一致。
 
 ## 验收
 

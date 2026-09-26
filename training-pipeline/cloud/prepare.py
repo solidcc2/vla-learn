@@ -23,6 +23,7 @@ def prepare_code(project_dir: Path, output_dir: Path) -> Path:
         "models": ("*.py",),
         "operators": ("__init__.py", "soft_medoid_pool.py"),
         "configs": ("*.json",),
+        "data_modules": ("*.py",),
     }.items():
         root = project_dir / directory
         if root.is_symlink():

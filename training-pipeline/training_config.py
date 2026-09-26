@@ -18,6 +18,7 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "seed": int,
     "download": bool,
     "resume": (str, type(None)),
+    "data": dict,
     "model": dict,
     "optimizer": dict,
     "scheduler": (dict, type(None)),
@@ -52,7 +53,7 @@ def load_training_config(path: Path) -> dict:
         raise ValueError(f"Invalid training JSON: {error}") from error
     if not isinstance(config, dict):
         raise ValueError("training config must be a JSON object")
-    for required in ("model", "optimizer"):
+    for required in ("data", "model", "optimizer"):
         if required not in config:
             raise ValueError(f"training config must define {required}")
     for key, value in config.items():
@@ -63,6 +64,7 @@ def load_training_config(path: Path) -> dict:
         if type(value) not in expected_types:
             raise ValueError(f"Invalid type for training config key: {key}")
     normalized = deepcopy(config)
+    normalized["data"] = normalize_object_spec(config["data"], "data")
     normalized["model"] = normalize_object_spec(config["model"], "model")
     normalized["optimizer"] = normalize_object_spec(config["optimizer"], "optimizer")
     normalized["scheduler"] = normalize_object_spec(

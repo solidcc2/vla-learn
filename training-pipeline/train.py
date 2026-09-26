@@ -1,4 +1,4 @@
-"""CIFAR-10 training with offline data and epoch-boundary resume."""
+"""Configured image-classification training with epoch-boundary resume."""
 
 import argparse
 from dataclasses import asdict
@@ -16,8 +16,7 @@ from checkpoint import (
     read_checkpoint, restore_checkpoint, save_checkpoint, snapshot_checkpoint,
     validate_checkpoint_config,
 )
-from components import create_model, create_optimizer, create_scheduler
-from data import create_dataloaders
+from components import create_data_module, create_model, create_optimizer, create_scheduler
 from engine import evaluate, train_one_epoch
 from persistence.files import atomic_path, write_json
 from training_config import load_training_config
@@ -31,12 +30,12 @@ class Publisher(Protocol):
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train a configured model on CIFAR-10")
+    parser = argparse.ArgumentParser(description="Train a configured image classifier")
     parser.add_argument("--config", type=Path, required=True,
                         help="Training JSON; explicit CLI options take precedence")
     parser.add_argument("--epochs", type=int, default=20, help="Target total epochs, including epochs before resume")
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
-    parser.add_argument("--data-version", default="cifar10", help="Dataset identity checked on resume")
+    parser.add_argument("--data-version", default="local", help="Dataset artifact identity checked on resume")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
@@ -76,7 +75,7 @@ def choose_device(requested: str) -> torch.device:
 def run_training(args: argparse.Namespace, publisher: Publisher | None = None, metadata: dict | None = None) -> dict:
     resume_payload = read_checkpoint(args.resume) if args.resume else None
     compatibility = {
-        "model": args.model, "optimizer": args.optimizer, "scheduler": args.scheduler,
+        "data": args.data, "model": args.model, "optimizer": args.optimizer, "scheduler": args.scheduler,
         "data_version": args.data_version, "batch_size": args.batch_size,
         "num_workers": args.num_workers,
     }
@@ -87,20 +86,23 @@ def run_training(args: argparse.Namespace, publisher: Publisher | None = None, m
     np.random.seed(effective_seed)
     torch.manual_seed(effective_seed)
     device = choose_device(args.device)
-    train_loader, test_loader = create_dataloaders(
+    data_module = create_data_module(args.data)
+    train_loader, validation_loader = data_module.create_train_loaders(
         args.data_dir, args.batch_size, args.num_workers, download=args.download,
     )
     model = create_model(args.model).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = create_optimizer(args.optimizer, model.parameters())
     scheduler = create_scheduler(args.scheduler, optimizer)
-    best_accuracy = -1.0
+    best_metric = {
+        "name": "validation.accuracy", "mode": "max", "value": -1.0, "epoch": 0,
+    }
     start_epoch = 1
     if resume_payload is not None:
         state = restore_checkpoint(
             resume_payload, model, optimizer, scheduler, device, restore_rng=True,
         )
-        start_epoch, best_accuracy = state.epoch + 1, state.best_accuracy
+        start_epoch, best_metric = state.epoch + 1, state.best_metric
         if start_epoch > args.epochs:
             raise ValueError(f"--epochs must exceed the completed checkpoint epoch ({state.epoch})")
         learning_rates = [group["lr"] for group in optimizer.param_groups]
@@ -132,22 +134,25 @@ def run_training(args: argparse.Namespace, publisher: Publisher | None = None, m
             publisher.check()
         learning_rates = [group["lr"] for group in optimizer.param_groups]
         train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device)
-        test_metrics = evaluate(model, test_loader, criterion, device)
+        validation_metrics = evaluate(model, validation_loader, criterion, device)
         metrics = {
             "epoch": epoch, "learning_rates": learning_rates,
-            "train": asdict(train_metrics), "test": asdict(test_metrics),
+            "train": asdict(train_metrics), "validation": asdict(validation_metrics),
         }
-        should_checkpoint = epoch % args.checkpoint_interval == 0 or epoch == args.epochs
-        is_best = should_checkpoint and test_metrics.accuracy > best_accuracy
-        if should_checkpoint:
-            best_accuracy = max(best_accuracy, test_metrics.accuracy)
+        is_best = validation_metrics.accuracy > best_metric["value"]
+        if is_best:
+            best_metric = {
+                "name": "validation.accuracy", "mode": "max",
+                "value": validation_metrics.accuracy, "epoch": epoch,
+            }
+        should_checkpoint = is_best or epoch % args.checkpoint_interval == 0 or epoch == args.epochs
         if scheduler is not None:
             scheduler.step()
         if publisher:
             if should_checkpoint:
                 publisher.publish_epoch(
                     lambda: snapshot_checkpoint(
-                        model, optimizer, scheduler, epoch, best_accuracy, config=config,
+                        model, optimizer, scheduler, epoch, best_metric, config=config,
                     ),
                     metrics, is_best,
                 )
@@ -157,7 +162,7 @@ def run_training(args: argparse.Namespace, publisher: Publisher | None = None, m
             if should_checkpoint:
                 save_checkpoint(
                     output / "last.pt", model, optimizer, scheduler,
-                    epoch, best_accuracy, config=config,
+                    epoch, best_metric, config=config,
                 )
                 if is_best:
                     with atomic_path(output / "best.pt") as temporary:

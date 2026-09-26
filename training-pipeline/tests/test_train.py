@@ -6,6 +6,7 @@ import pytest
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
+from engine import Metrics
 
 import train
 
@@ -21,19 +22,28 @@ class RandomDataset(Dataset):
 
 @pytest.fixture
 def small_training(monkeypatch):
-    def loaders(data_dir, batch_size, num_workers, download=True):
-        assert download is False
-        return (
-            DataLoader(RandomDataset(), batch_size=batch_size, shuffle=True),
-            DataLoader(RandomDataset(), batch_size=batch_size),
-        )
-    monkeypatch.setattr(train, "create_dataloaders", loaders)
+    class TestDataModule:
+        def create_train_loaders(self, data_dir, batch_size, num_workers, download=True):
+            assert download is False
+            return (
+                DataLoader(RandomDataset(), batch_size=batch_size, shuffle=True),
+                DataLoader(RandomDataset(), batch_size=batch_size),
+            )
+
+        def create_test_loader(self, *args, **kwargs):
+            raise AssertionError("training must not create the test loader")
+
+    monkeypatch.setattr(train, "create_data_module", lambda spec: TestDataModule())
     monkeypatch.setattr(train, "create_model", lambda spec: nn.Linear(3, 2))
 
 
 def train_args(output, epochs, *extra, config_overrides=None):
     config = output.parent / f"{output.name}.json"
     values = {
+        "data": {
+            "target": "data_modules.cifar:CIFARDataModule",
+            "params": {"dataset": "cifar10", "validation_size": 5000, "split_seed": 42},
+        },
         "epochs": epochs,
         "batch_size": 4,
         "device": "cpu",
@@ -90,19 +100,21 @@ def test_resume_matches_continuous_training_with_scheduler_and_rng(tmp_path, sma
     assert_tree_equal(full["model_state_dict"], resumed["model_state_dict"])
     assert_tree_equal(full["optimizer_state_dict"], resumed["optimizer_state_dict"])
     assert_tree_equal(full["scheduler_state_dict"], resumed["scheduler_state_dict"])
-    assert full["best_accuracy"] == resumed["best_accuracy"]
+    assert full["best_metric"] == resumed["best_metric"]
     metrics = [json.loads(line) for line in (tmp_path / "resumed/metrics.jsonl").read_text().splitlines()]
     assert [row["epoch"] for row in metrics] == [2]
     assert metrics[0]["learning_rates"] == [0.00055]
+    assert "validation" in metrics[0] and "test" not in metrics[0]
     assert json.loads((tmp_path / "resumed/config.json").read_text())["seed"] == 42
 
 
-def test_checkpoint_interval_keeps_all_metrics_and_final_checkpoint(tmp_path, small_training):
+def test_validation_best_is_saved_outside_interval_and_ties_do_not_replace_it(tmp_path, small_training, monkeypatch):
     class RecordingPublisher:
         def __init__(self):
             self.config = None
             self.checkpoints = []
             self.metrics_only = []
+            self.best_epochs = []
 
         def publish_config(self, config):
             self.config = config
@@ -111,6 +123,8 @@ def test_checkpoint_interval_keeps_all_metrics_and_final_checkpoint(tmp_path, sm
             payload = snapshot()
             assert payload["epoch"] == metrics["epoch"]
             self.checkpoints.append(metrics["epoch"])
+            if is_best:
+                self.best_epochs.append(metrics["epoch"])
 
         def publish_metrics(self, metrics):
             self.metrics_only.append(metrics["epoch"])
@@ -119,13 +133,21 @@ def test_checkpoint_interval_keeps_all_metrics_and_final_checkpoint(tmp_path, sm
             pass
 
     publisher = RecordingPublisher()
+    accuracies = iter([0.5, 0.5, 0.6, 0.6, 0.6])
+
+    def validation_metrics(*args, **kwargs):
+        return Metrics(loss=1.0, accuracy=next(accuracies), samples=8)
+
+    monkeypatch.setattr(train, "evaluate", validation_metrics)
+
     train.run_training(
-        train_args(tmp_path / "interval", 5, config_overrides={"checkpoint_interval": 2}),
+        train_args(tmp_path / "interval", 5, config_overrides={"checkpoint_interval": 5}),
         publisher=publisher,
     )
-    assert publisher.config["checkpoint_interval"] == 2
-    assert publisher.checkpoints == [2, 4, 5]
-    assert publisher.metrics_only == [1, 3]
+    assert publisher.config["checkpoint_interval"] == 5
+    assert publisher.checkpoints == [1, 3, 5]
+    assert publisher.metrics_only == [2, 4]
+    assert publisher.best_epochs == [1, 3]
 
 
 def test_resume_rejects_conflicting_batch_size(tmp_path, small_training):
@@ -150,6 +172,12 @@ def test_resume_rejects_already_completed_target(tmp_path, small_training):
     [
         ("optimizer", {"target": "torch.optim:SGD", "params": {"lr": 0.001}}),
         ("scheduler", None),
+        ("data", {
+            "target": "data_modules.cifar:CIFARDataModule",
+            "params": {
+                "dataset": "cifar10", "validation_size": 5000, "split_seed": 7,
+            },
+        }),
     ],
 )
 def test_resume_rejects_conflicting_training_recipe(
@@ -167,6 +195,7 @@ def test_resume_rejects_conflicting_training_recipe(
 
 def base_config(**overrides):
     config = {
+        "data": {"target": "data_modules.cifar:CIFARDataModule", "params": {}},
         "model": {"target": "models.simple_cnn:SimpleCNN", "params": {}},
         "optimizer": {"target": "torch.optim:Adam", "params": {"lr": 0.001}},
         "scheduler": None,

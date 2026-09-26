@@ -12,6 +12,7 @@ import train
 def training_config(**overrides):
     config = {
         "model": {"target": "models.simple_cnn:SimpleCNN", "params": {}},
+        "data": {"target": "data_modules.cifar:CIFARDataModule", "params": {}},
         "optimizer": {"target": "torch.optim:Adam", "params": {"lr": 0.001}},
         "scheduler": None,
     }
@@ -22,6 +23,15 @@ def training_config(**overrides):
 def test_training_requires_config() -> None:
     with pytest.raises(SystemExit):
         train.parse_args([])
+
+
+def test_training_config_requires_data(tmp_path) -> None:
+    config = training_config()
+    del config["data"]
+    path = tmp_path / "missing-data.json"
+    path.write_text(json.dumps(config))
+    with pytest.raises(SystemExit):
+        train.parse_args(["--config", str(path)])
 
 
 def test_training_reads_explicit_model_target(tmp_path) -> None:
@@ -35,10 +45,11 @@ def test_training_reads_explicit_model_target(tmp_path) -> None:
     assert args.model["params"] == {"num_classes": 3}
 
 
-def test_evaluation_uses_model_recorded_in_checkpoint(tmp_path, monkeypatch) -> None:
+def test_evaluation_uses_model_and_test_data_recorded_in_checkpoint(tmp_path, monkeypatch) -> None:
     checkpoint = tmp_path / "checkpoint.pt"
     model_spec = {"target": "torch.nn:Linear", "params": {"in_features": 3, "out_features": 2}}
-    payload = {"config": {"model": model_spec}}
+    data_spec = {"target": "tests.fake:DataModule", "params": {}}
+    payload = {"config": {"data": data_spec, "model": model_spec}}
     model = nn.Linear(3, 2)
     seen = {}
     monkeypatch.setattr(evaluate, "read_checkpoint", lambda path: payload)
@@ -48,10 +59,16 @@ def test_evaluation_uses_model_recorded_in_checkpoint(tmp_path, monkeypatch) -> 
         return model
 
     monkeypatch.setattr(evaluate, "create_model", build_model)
-    monkeypatch.setattr(
-        evaluate, "create_dataloaders",
-        lambda *args, **kwargs: (None, [(torch.zeros(1, 3), torch.zeros(1, dtype=torch.long))]),
-    )
+    class TestDataModule:
+        def create_test_loader(self, *args, **kwargs):
+            seen["test_loader"] = True
+            return [(torch.zeros(1, 3), torch.zeros(1, dtype=torch.long))]
+
+    def build_data_module(spec):
+        seen["data_spec"] = spec
+        return TestDataModule()
+
+    monkeypatch.setattr(evaluate, "create_data_module", build_data_module)
     monkeypatch.setattr(
         evaluate, "restore_checkpoint",
         lambda *args, **kwargs: SimpleNamespace(epoch=4),
@@ -62,4 +79,6 @@ def test_evaluation_uses_model_recorded_in_checkpoint(tmp_path, monkeypatch) -> 
     )
     state, metrics = evaluate.run_evaluation(evaluate.parse_args([str(checkpoint), "--device", "cpu"]))
     assert seen["spec"] == model_spec
+    assert seen["data_spec"] == data_spec
+    assert seen["test_loader"] is True
     assert state.epoch == 4 and metrics.samples == 1

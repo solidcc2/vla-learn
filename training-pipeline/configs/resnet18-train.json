@@ -1,4 +1,12 @@
 {
+  "data": {
+    "target": "data_modules.cifar:CIFARDataModule",
+    "params": {
+      "dataset": "cifar10",
+      "validation_size": 5000,
+      "split_seed": 42
+    }
+  },
   "epochs": 200,
   "checkpoint_interval": 20,
   "batch_size": 128,

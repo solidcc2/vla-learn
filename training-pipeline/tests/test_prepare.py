@@ -13,6 +13,8 @@ def test_prepare_only_builds_local_code_directory(tmp_path):
     assert (code / "models/simple_cnn.py").is_file()
     assert (code / "models/simple_cnn_soft_medoid.py").is_file()
     assert not (code / "models/factory.py").exists()
+    assert (code / "data_modules/__init__.py").is_file()
+    assert (code / "data_modules/cifar.py").is_file()
     assert (code / "operators/soft_medoid_pool.py").is_file()
     assert not (code / "model.py").exists()
     assert (code / "SHA256SUMS").is_file()

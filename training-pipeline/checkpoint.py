@@ -12,7 +12,7 @@ from torch import nn
 
 from persistence.files import atomic_path
 
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 
 
 def _cpu_copy(value):
@@ -30,26 +30,26 @@ def _cpu_copy(value):
     return copy.deepcopy(value)
 
 
-def _checkpoint_payload(model, optimizer, scheduler, epoch, best_accuracy, config):
+def _checkpoint_payload(model, optimizer, scheduler, epoch, best_metric, config):
     return {
-        "format_version": FORMAT_VERSION, "epoch": epoch, "best_accuracy": best_accuracy,
+        "format_version": FORMAT_VERSION, "epoch": epoch, "best_metric": best_metric,
         "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
         "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
         "config": config, "rng_state": capture_rng_state(),
     }
 
 
-def snapshot_checkpoint(model, optimizer, scheduler, epoch, best_accuracy, *, config: dict):
+def snapshot_checkpoint(model, optimizer, scheduler, epoch, best_metric, *, config: dict):
     """Capture independent CPU storage before the next optimizer update."""
     return _cpu_copy(_checkpoint_payload(
-        model, optimizer, scheduler, epoch, best_accuracy, config,
+        model, optimizer, scheduler, epoch, best_metric, config,
     ))
 
 
 @dataclass(frozen=True)
 class CheckpointState:
     epoch: int
-    best_accuracy: float
+    best_metric: dict
     config: dict = field(default_factory=dict)
 
 
@@ -82,11 +82,11 @@ def save_checkpoint(
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     epoch: int,
-    best_accuracy: float,
+    best_metric: dict,
     *,
     config: dict,
 ) -> None:
-    payload = _checkpoint_payload(model, optimizer, scheduler, epoch, best_accuracy, config)
+    payload = _checkpoint_payload(model, optimizer, scheduler, epoch, best_metric, config)
     with atomic_path(path) as temporary:
         torch.save(payload, temporary)
 
@@ -102,18 +102,30 @@ def read_checkpoint(path: Path) -> dict:
             f"Unsupported checkpoint format version: {version}; expected {FORMAT_VERSION}"
         )
     required = {
-        "epoch", "best_accuracy", "model_state_dict", "optimizer_state_dict",
+        "epoch", "best_metric", "model_state_dict", "optimizer_state_dict",
         "scheduler_state_dict", "config", "rng_state",
     }
     missing = required - payload.keys()
     if missing:
         raise ValueError(f"Checkpoint is missing field: {sorted(missing)[0]}")
     config = payload.get("config")
-    config_fields = {"model", "optimizer", "scheduler", "seed"}
+    config_fields = {"data", "model", "optimizer", "scheduler", "seed"}
     if not isinstance(config, dict):
         raise ValueError("Checkpoint has no complete training config")
     if missing_config := config_fields - config.keys():
         raise ValueError(f"Checkpoint config is missing field: {sorted(missing_config)[0]}")
+    best_metric = payload["best_metric"]
+    if (
+        not isinstance(best_metric, dict)
+        or set(best_metric) != {"name", "mode", "value", "epoch"}
+        or best_metric["name"] != "validation.accuracy"
+        or best_metric["mode"] != "max"
+        or type(best_metric["value"]) not in (int, float)
+        or not isinstance(best_metric["epoch"], int)
+        or best_metric["epoch"] <= 0
+    ):
+        raise ValueError("Checkpoint has an invalid best_metric")
+
     scheduler_state = payload["scheduler_state_dict"]
     if (config["scheduler"] is None) != (scheduler_state is None):
         raise ValueError("Checkpoint scheduler config and state are inconsistent")
@@ -151,4 +163,6 @@ def restore_checkpoint(
         scheduler.load_state_dict(payload["scheduler_state_dict"])
     if restore_rng:
         restore_rng_state(payload["rng_state"])
-    return CheckpointState(int(payload["epoch"]), float(payload["best_accuracy"]), config)
+    return CheckpointState(
+        int(payload["epoch"]), copy.deepcopy(payload["best_metric"]), config,
+    )

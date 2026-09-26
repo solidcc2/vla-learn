@@ -2,8 +2,9 @@ import pytest
 import torch
 from torch import nn
 
-from components import create_model, create_optimizer, create_scheduler, resolve_target
+from components import create_data_module, create_model, create_optimizer, create_scheduler, resolve_target
 from models.resnet import ResNet18
+from data_modules.cifar import CIFARDataModule
 
 
 def test_create_model_loads_resnet_from_python_target() -> None:
@@ -33,6 +34,20 @@ def test_resolve_target_rejects_invalid_or_missing_target(target) -> None:
 def test_create_model_rejects_non_module_class() -> None:
     with pytest.raises(TypeError, match="nn.Module"):
         create_model({"target": "builtins:dict", "params": {}})
+
+
+def test_create_data_module_loads_cifar_from_python_target() -> None:
+    data_module = create_data_module({
+        "target": "data_modules.cifar:CIFARDataModule",
+        "params": {"dataset": "cifar100", "validation_size": 5000},
+    })
+    assert isinstance(data_module, CIFARDataModule)
+    assert data_module.dataset == "cifar100"
+
+
+def test_create_data_module_rejects_wrong_type() -> None:
+    with pytest.raises(TypeError, match="DataModule"):
+        create_data_module({"target": "builtins:dict", "params": {}})
 
 
 def test_optimizer_and_cosine_scheduler_are_configured() -> None:

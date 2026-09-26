@@ -1,4 +1,4 @@
-# CIFAR-10 本地开发与 PAI DLC 训练
+# CIFAR 本地开发与 PAI DLC 训练
 
 工作流：本地开发/打包 → 将资源放入版本化 OSS 目录 → 公共镜像启动 → 输入复制到本地 → 训练结果异步写入 runs 挂载 → 新任务恢复。
 
@@ -6,7 +6,7 @@ OSS 访问由 DLC 存储挂载负责。通过 PAI CLI 读取 `dlc/job.yaml` 创�
 
 设计与职责详见 [设计说明](docs/design.md)。
 
-源码按职责组织：根目录的 `model.py`、`data.py`、`engine.py`、`checkpoint.py` 负责模型、数据、训练循环与训练状态；`train.py` / `evaluate.py` 是入口。`persistence/files.py` 提供基础文件操作，`persistence/runs.py` 负责后台保存和 run 恢复；`cloud/` 只负责云端启动、源码发布和数据准备。数据目录 `data/` 与源码 `data.py` 分别存放数据文件和加载逻辑。
+源码按职责组织：`models/`、`data_modules/`、`engine.py`、`checkpoint.py` 分别负责模型、动态数据组件、训练循环与训练状态；`train.py` / `evaluate.py` 是入口。`persistence/files.py` 提供基础文件操作，`persistence/runs.py` 负责后台保存和 run 恢复；`cloud/` 只负责云端启动、源码发布和数据准备。数据目录 `data/` 存放实际数据文件，源码 `data.py` 定义 DataModule 接口。
 
 职责边界：环境准备负责依赖与 GPU 验收；`cloud.launch` 负责衔接资源、恢复来源、输出目录及任务状态；`train` 负责训练参数与设备选择；`checkpoint` 负责训练状态兼容性；`persistence` 负责 run 路径、队列和文件完整性。启动器只保留自身参数语义约束，例如 `resume-best` 必须配合 `resume-run`，云端恢复不能混用训练 JSON 的本地 `resume`。
 
@@ -30,12 +30,14 @@ python -m pip check
 python train.py --config configs/smoke.json --data-dir data --output-dir outputs/first --device cpu
 python train.py --config configs/resume-smoke.json --data-dir data --output-dir outputs/resumed \
   --device cpu --no-download --resume outputs/first/last.pt
-python evaluate.py outputs/resumed/last.pt --data-dir data --device cpu --no-download
+python evaluate.py outputs/first/best.pt --data-dir data --device cpu --no-download
 ```
 
 `last.pt`、刷新后的 `best.pt` 在本地盘原子替换；`metrics.jsonl` 在本地追加。此模式的输出目录不要设为 OSS 挂载。云端通过 `cloud.launch` 使用下面的异步挂载协议。
 
-`--epochs` 是目标总轮数，恢复从已完成轮次 + 1 开始。模型、优化器和 epoch scheduler 由 JSON 中的 Python target 与参数构造；checkpoint 包含三者状态、最佳准确率及 Python/NumPy/Torch CPU/CUDA RNG。恢复检查组件配置、数据版本、batch size 和 worker 数，并沿用原始 seed 与随机状态。格式 3 不读取旧 checkpoint；跨设备或框架版本不保证逐位一致。
+`--epochs` 是目标总轮数，恢复从已完成轮次 + 1 开始。数据模块、模型、优化器和 epoch scheduler 均由 JSON 中的 Python target 与参数构造。checkpoint 包含组件状态、基于验证集的最佳指标及 Python/NumPy/Torch CPU/CUDA RNG。恢复检查数据、模型、优化器、scheduler、数据版本、batch size 和 worker 数，并沿用原始 seed 与随机状态。格式 4 不读取旧 checkpoint；跨设备或框架版本不保证逐位一致。
+
+CIFAR DataModule 将官方 50,000 张训练数据按类别分层拆为 45,000 张训练集和 5,000 张验证集，拆分由 `split_seed` 固定。训练集使用随机裁剪和水平翻转，验证集与官方测试集只使用确定性预处理。训练过程每轮只评估验证集并按 `validation.accuracy` 选择 best checkpoint；官方测试集仅由 `evaluate.py` 对指定 checkpoint 独立评估。
 
 ## 2. 准备与放置资源
 
@@ -163,7 +165,7 @@ Bash 复制源码到本地临时目录，校验文件清单后启动 `python -m 
   train.log           # 入口退出时归档，失败不改变训练退出码
 ```
 
-配置中的 `checkpoint_interval` 控制 checkpoint 间隔，最终轮次无论是否落在间隔上都会保存；默认值为 1。非 checkpoint 轮次只把指标写入 `metrics/`。checkpoint 轮次的训练线程先取得独立 CPU 快照，复制模型、优化器、配置和 RNG。复制完成后才开始下一轮，确保训练不会修改后台正保存的数据。后台负责序列化 checkpoint、写指标、关闭文件、校验摘要，最后写 complete.json。每个文件只创建一次，不在 OSS 上追加、覆盖或 rename。
+配置中的 `checkpoint_interval` 控制定期 checkpoint 间隔；新的 validation best 和最终轮次无论是否落在间隔上都会保存。其他轮次只把指标写入 `metrics/`。checkpoint 轮次的训练线程先取得独立 CPU 快照，复制模型、优化器、配置和 RNG。复制完成后才开始下一轮，确保训练不会修改后台正保存的数据。后台负责序列化 checkpoint、写指标、关闭文件、校验摘要，最后写 complete.json。每个文件只创建一次，不在 OSS 上追加、覆盖或 rename。
 
 训练层通过 publish_config、publish_epoch 和 check 使用保存器，启动器管理其关闭和等待。训练线程同步取得 CPU 快照，单个后台 I/O 线程执行序列化和文件写入，与下一轮训练重叠。
 
@@ -181,7 +183,7 @@ Bash 复制源码到本地临时目录，校验文件清单后启动 `python -m 
 
 默认选旧 run 中最新的完整轮次；也可加 `--resume-best`。恢复检查 checkpoint 与指标的路径/摘要，复制选中的 checkpoint 到本地并再次校验，再恢复训练状态。索引路径相对于 runs 根目录，容器挂载路径变化不影响引用。
 
-最佳 checkpoint 引用随 complete.json 保存，恢复时继承。新 run 没有刷新最佳结果时，引用仍指向旧 run，不能删除被引用的历史目录。清理时需保留仍被引用的 run。本地 .pt 可用 train.py/evaluate.py 读取。
+最佳 checkpoint 按 validation accuracy 选择，其引用随 complete.json 保存并在续训时继承。新 run 没有刷新最佳结果时，引用仍指向旧 run，不能删除被引用的历史目录。清理时需保留仍被引用的 run。本地 .pt 可用 train.py/evaluate.py 读取。
 
 在可以访问 runs 挂载的环境中，提取最佳 checkpoint 并评估：
 
@@ -203,7 +205,7 @@ bash -n dlc/bootstrap.sh
 
 验证结果及待验收事项见 [验证记录](docs/validation.md)；任务、版本与续训关系见 [实验索引](experiments/index.json)。
 
-当前按 CIFAR-10 测试集准确率选择最佳模型，正式比较前应拆分验证集。
+训练指标仅包含 train 和 validation；官方测试集结果由上述独立评估命令产生，不参与 best checkpoint 选择。
 
 ## ECS 手动挂载
 
